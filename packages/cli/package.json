@@ -1,0 +1,31 @@
+{
+  "name": "blitzwing",
+  "version": "0.1.6",
+  "description": "Interactive setup wizard to join a Blitzwing Petals mother swarm as a compute contributor",
+  "bin": {
+    "blitzwing": "bin/blitzwing.js"
+  },
+  "type": "module",
+  "engines": {
+    "node": ">=18"
+  },
+  "files": [
+    "bin",
+    "src",
+    "README.md"
+  ],
+  "keywords": [
+    "blitzwing",
+    "petals",
+    "llm",
+    "distributed-inference"
+  ],
+  "license": "MIT",
+  "config": {
+    "discoveryUrl": "https://f44c-103-98-63-33.ngrok-free.app"
+  },
+  "dependencies": {
+    "@clack/prompts": "^0.9.1",
+    "picocolors": "^1.1.1"
+  }
+}
