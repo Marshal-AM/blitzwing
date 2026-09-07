@@ -1,0 +1,9 @@
+# FastAPI orchestrator deps. Install Petals from the vendored tree first:
+#   pip install -e ../petals
+#   pip install -r requirements.txt
+
+fastapi>=0.110.0,<1.0.0
+uvicorn[standard]>=0.27.0,<1.0.0
+pydantic>=2.0.0,<3.0.0
+python-dotenv>=1.0.0,<2.0.0
+httpx>=0.27.0,<1.0.0

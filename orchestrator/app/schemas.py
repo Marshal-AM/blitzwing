@@ -1,0 +1,139 @@
+"""OpenAI-compatible request/response models."""
+
+from __future__ import annotations
+
+from typing import Any, Dict, List, Literal, Optional, Union
+
+from pydantic import BaseModel
+
+
+class ChatMessage(BaseModel):
+    role: Literal["system", "user", "assistant"]
+    content: str
+
+
+class ChatCompletionRequest(BaseModel):
+    model: str
+    messages: List[ChatMessage]
+    max_tokens: Optional[int] = None
+    temperature: Optional[float] = 0.7
+    top_p: Optional[float] = 0.9
+    stream: bool = False
+    stop: Optional[Union[str, List[str]]] = None
+
+
+class Usage(BaseModel):
+    prompt_tokens: int
+    completion_tokens: int
+    total_tokens: int
+
+
+class ChoiceMessage(BaseModel):
+    role: Literal["assistant"] = "assistant"
+    content: str
+
+
+class Choice(BaseModel):
+    index: int = 0
+    message: ChoiceMessage
+    finish_reason: Optional[str] = "stop"
+
+
+class ChatCompletionResponse(BaseModel):
+    id: str
+    object: Literal["chat.completion"] = "chat.completion"
+    created: int
+    model: str
+    choices: List[Choice]
+    usage: Usage
+
+
+class Delta(BaseModel):
+    role: Optional[Literal["assistant"]] = None
+    content: Optional[str] = None
+
+
+class StreamChoice(BaseModel):
+    index: int = 0
+    delta: Delta
+    finish_reason: Optional[str] = None
+
+
+class ChatCompletionChunk(BaseModel):
+    id: str
+    object: Literal["chat.completion.chunk"] = "chat.completion.chunk"
+    created: int
+    model: str
+    choices: List[StreamChoice]
+
+
+class ModelCard(BaseModel):
+    id: str
+    object: Literal["model"] = "model"
+    created: int
+    owned_by: str = "blitzwing"
+
+
+class ModelList(BaseModel):
+    object: Literal["list"] = "list"
+    data: List[ModelCard]
+
+
+class HealthResponse(BaseModel):
+    status: str
+    model: str
+    model_loaded: bool
+    initial_peers: List[str]
+    detail: Optional[str] = None
+    extra: Optional[Dict[str, Any]] = None
+    max_layers_available: Optional[int] = None
+    total_layers: Optional[int] = None
+
+
+class HostJoinRequest(BaseModel):
+    model: str
+    layers: int
+    public_ip: str
+    shard_manager_url: str
+
+
+class HostJoinResponse(BaseModel):
+    host_id: str
+    model: str
+    block_indices: str
+    layers_hosted: int
+    initial_peers: List[str]
+    donor_host_id: str
+    max_layers_available: int
+    total_layers: int
+
+
+class HostReadyRequest(BaseModel):
+    host_id: str
+    peer_multiaddr: Optional[str] = None
+
+
+class HostHeartbeatRequest(BaseModel):
+    host_id: str
+
+
+class HostLeaveRequest(BaseModel):
+    host_id: str
+
+
+class HostPublic(BaseModel):
+    host_id: str
+    role: str
+    model: str
+    block_indices: str
+    layers_hosted: int
+    status: str
+    public_ip: Optional[str] = None
+    last_heartbeat: int
+
+
+class HostListResponse(BaseModel):
+    model: str
+    total_layers: int
+    max_layers_available: int
+    hosts: List[HostPublic]
