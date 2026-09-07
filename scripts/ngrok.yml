@@ -1,0 +1,11 @@
+version: "3"
+tunnels:
+  discovery:
+    proto: http
+    addr: 9000
+  orchestrator:
+    proto: http
+    addr: 8000
+  petals:
+    proto: tcp
+    addr: 31337
