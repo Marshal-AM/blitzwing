@@ -1,0 +1,29 @@
+# Secrets / local env
+.env
+.env.*
+!.env.example
+orchestrator/.env
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+
+# Node
+node_modules/
+packages/cli/node_modules/
+packages/cli/.npmrc
+*.tgz
+
+# Runtime / logs
+.blitzwing/
+**/blitzwing-logs/
+*.log
+petals-identity*
+
+# OS
+.DS_Store
+Thumbs.db
