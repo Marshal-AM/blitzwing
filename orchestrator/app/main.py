@@ -1,0 +1,407 @@
+"""FastAPI OpenAI-compatible chat completions + host join/rebalance APIs."""
+
+from __future__ import annotations
+
+import asyncio
+import logging
+from contextlib import asynccontextmanager
+from typing import AsyncIterator, Optional
+
+from fastapi import FastAPI, HTTPException
+from fastapi.responses import StreamingResponse
+
+from orchestrator.app.config import get_settings
+from orchestrator.app.engine import get_engine, new_completion_id, now_ts
+from orchestrator.app.registry import get_registry, init_registry
+from orchestrator.app.schemas import (
+    ChatCompletionChunk,
+    ChatCompletionRequest,
+    ChatCompletionResponse,
+    Choice,
+    ChoiceMessage,
+    Delta,
+    HealthResponse,
+    HostHeartbeatRequest,
+    HostJoinRequest,
+    HostJoinResponse,
+    HostLeaveRequest,
+    HostListResponse,
+    HostPublic,
+    HostReadyRequest,
+    ModelCard,
+    ModelList,
+    StreamChoice,
+    Usage,
+)
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+_reaper_task: Optional[asyncio.Task] = None
+
+
+async def _reaper_loop() -> None:
+    settings = get_settings()
+    while True:
+        await asyncio.sleep(30)
+        try:
+            registry = get_registry()
+            reaped = await asyncio.to_thread(registry.reap_stale, settings.heartbeat_ttl_seconds)
+            if reaped:
+                logger.info("Reaped stale hosts: %s", reaped)
+        except Exception:  # noqa: BLE001
+            logger.exception("Heartbeat reaper error")
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    global _reaper_task
+    settings = get_settings()
+    registry = init_registry(
+        settings.model_name,
+        settings.total_layers,
+        settings.mother_shard_manager_url,
+    )
+    if settings.announce_peers:
+        registry.set_bootstrap_peers(settings.announce_peers)
+    elif settings.initial_peers:
+        registry.set_bootstrap_peers(settings.initial_peers)
+
+    engine = get_engine()
+    if settings.load_at_startup:
+        if not settings.initial_peers:
+            logger.warning(
+                "LOAD_AT_STARTUP is set but INITIAL_PEERS is empty; "
+                "deferring Petals client load until peers are set / first request."
+            )
+        else:
+            try:
+                await asyncio.to_thread(engine.load)
+            except Exception:  # noqa: BLE001
+                logger.exception(
+                    "Startup model load failed; /health will report not ready. "
+                    "Fix INITIAL_PEERS / swarm and retry a request."
+                )
+
+    _reaper_task = asyncio.create_task(_reaper_loop())
+    yield
+    if _reaper_task:
+        _reaper_task.cancel()
+        try:
+            await _reaper_task
+        except asyncio.CancelledError:
+            pass
+
+
+app = FastAPI(
+    title="Blitzwing Petals Orchestrator",
+    version="0.2.0",
+    description="OpenAI-compatible chat completions + mother swarm host registry.",
+    lifespan=lifespan,
+)
+
+
+@app.get("/health", response_model=HealthResponse)
+async def health() -> HealthResponse:
+    settings = get_settings()
+    engine = get_engine()
+    try:
+        registry = get_registry()
+        max_layers = registry.max_carveable()
+    except Exception:  # noqa: BLE001
+        max_layers = None
+    status = "ok" if engine.is_loaded else "degraded"
+    return HealthResponse(
+        status=status,
+        model=settings.model_name,
+        model_loaded=engine.is_loaded,
+        initial_peers=list(settings.initial_peers),
+        detail=engine.load_error,
+        max_layers_available=max_layers,
+        total_layers=settings.total_layers,
+    )
+
+
+@app.get("/v1/models", response_model=ModelList)
+async def list_models() -> ModelList:
+    settings = get_settings()
+    return ModelList(
+        data=[
+            ModelCard(
+                id=settings.model_name,
+                created=now_ts(),
+                owned_by="blitzwing",
+            )
+        ]
+    )
+
+
+@app.get("/v1/hosts", response_model=HostListResponse)
+async def list_hosts() -> HostListResponse:
+    settings = get_settings()
+    registry = get_registry()
+    hosts = [
+        HostPublic(
+            host_id=h.host_id,
+            role=h.role,
+            model=h.model,
+            block_indices=h.block_indices,
+            layers_hosted=h.layers_hosted,
+            status=h.status,
+            public_ip=h.public_ip,
+            last_heartbeat=h.last_heartbeat,
+        )
+        for h in registry.list_hosts()
+    ]
+    return HostListResponse(
+        model=settings.model_name,
+        total_layers=settings.total_layers,
+        max_layers_available=registry.max_carveable(),
+        hosts=hosts,
+    )
+
+
+@app.post("/v1/hosts/join", response_model=HostJoinResponse)
+async def hosts_join(body: HostJoinRequest) -> HostJoinResponse:
+    settings = get_settings()
+    if body.model != settings.model_name:
+        raise HTTPException(
+            status_code=400,
+            detail=f"This mother serves '{settings.model_name}', not '{body.model}'",
+        )
+    registry = get_registry()
+    try:
+        result = await asyncio.to_thread(
+            registry.join,
+            layers=body.layers,
+            public_ip=body.public_ip,
+            shard_manager_url=body.shard_manager_url,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail={"message": str(exc), "max_layers": registry.max_carveable()},
+        ) from exc
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("join failed")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    return HostJoinResponse(**result)
+
+
+@app.post("/v1/hosts/ready")
+async def hosts_ready(body: HostReadyRequest) -> dict:
+    registry = get_registry()
+    try:
+        host = await asyncio.to_thread(registry.mark_ready, body.host_id, body.peer_multiaddr)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("ready/handoff failed")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    return {
+        "host_id": host.host_id,
+        "status": host.status,
+        "block_indices": host.block_indices,
+        "layers_hosted": host.layers_hosted,
+    }
+
+
+@app.post("/v1/hosts/heartbeat")
+async def hosts_heartbeat(body: HostHeartbeatRequest) -> dict:
+    registry = get_registry()
+    try:
+        host = registry.heartbeat(body.host_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return {"host_id": host.host_id, "last_heartbeat": host.last_heartbeat}
+
+
+@app.post("/v1/hosts/leave")
+async def hosts_leave(body: HostLeaveRequest) -> dict:
+    registry = get_registry()
+    try:
+        await asyncio.to_thread(registry.leave, body.host_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("leave/reclaim failed")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    return {"left": body.host_id}
+
+
+def _messages_as_dicts(request: ChatCompletionRequest) -> list:
+    return [m.model_dump() for m in request.messages]
+
+
+async def _ensure_model_or_400(request: ChatCompletionRequest) -> None:
+    settings = get_settings()
+    if request.model and request.model != settings.model_name:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Unsupported model '{request.model}'. "
+                f"This orchestrator serves '{settings.model_name}'."
+            ),
+        )
+    if not request.messages:
+        raise HTTPException(status_code=400, detail="messages must be a non-empty list")
+
+
+@app.post("/v1/chat/completions")
+async def chat_completions(request: ChatCompletionRequest):
+    await _ensure_model_or_400(request)
+    settings = get_settings()
+    engine = get_engine()
+    completion_id = new_completion_id()
+    created = now_ts()
+    messages = _messages_as_dicts(request)
+
+    if request.stream:
+        return StreamingResponse(
+            _stream_sse(
+                engine=engine,
+                messages=messages,
+                request=request,
+                completion_id=completion_id,
+                created=created,
+                model=settings.model_name,
+            ),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",
+            },
+        )
+
+    try:
+        result = await asyncio.to_thread(
+            engine.generate,
+            messages,
+            max_tokens=request.max_tokens,
+            temperature=request.temperature,
+            top_p=request.top_p,
+            stop=request.stop,
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Generation failed")
+        raise HTTPException(status_code=500, detail=f"Generation failed: {exc}") from exc
+
+    return ChatCompletionResponse(
+        id=completion_id,
+        created=created,
+        model=settings.model_name,
+        choices=[
+            Choice(
+                index=0,
+                message=ChoiceMessage(role="assistant", content=result.text),
+                finish_reason=result.finish_reason,
+            )
+        ],
+        usage=Usage(
+            prompt_tokens=result.prompt_tokens,
+            completion_tokens=result.completion_tokens,
+            total_tokens=result.prompt_tokens + result.completion_tokens,
+        ),
+    )
+
+
+async def _stream_sse(
+    *,
+    engine,
+    messages: list,
+    request: ChatCompletionRequest,
+    completion_id: str,
+    created: int,
+    model: str,
+) -> AsyncIterator[str]:
+    first = ChatCompletionChunk(
+        id=completion_id,
+        created=created,
+        model=model,
+        choices=[StreamChoice(index=0, delta=Delta(role="assistant", content=""), finish_reason=None)],
+    )
+    yield f"data: {first.model_dump_json()}\n\n"
+
+    queue: asyncio.Queue[Optional[object]] = asyncio.Queue()
+    loop = asyncio.get_running_loop()
+
+    def _producer() -> None:
+        try:
+            gen = engine.stream_generate(
+                messages,
+                max_tokens=request.max_tokens,
+                temperature=request.temperature,
+                top_p=request.top_p,
+                stop=request.stop,
+            )
+            try:
+                while True:
+                    piece = next(gen)
+                    loop.call_soon_threadsafe(queue.put_nowait, ("delta", piece))
+            except StopIteration as stop:
+                result = stop.value
+                loop.call_soon_threadsafe(queue.put_nowait, ("done", result))
+        except Exception as exc:  # noqa: BLE001
+            loop.call_soon_threadsafe(queue.put_nowait, ("error", exc))
+
+    producer = loop.run_in_executor(None, _producer)
+
+    finish_reason = "stop"
+    try:
+        while True:
+            kind, payload = await queue.get()
+            if kind == "delta":
+                chunk = ChatCompletionChunk(
+                    id=completion_id,
+                    created=created,
+                    model=model,
+                    choices=[
+                        StreamChoice(
+                            index=0,
+                            delta=Delta(content=str(payload)),
+                            finish_reason=None,
+                        )
+                    ],
+                )
+                yield f"data: {chunk.model_dump_json()}\n\n"
+            elif kind == "done":
+                if payload is not None:
+                    finish_reason = getattr(payload, "finish_reason", "stop")
+                break
+            elif kind == "error":
+                err = ChatCompletionChunk(
+                    id=completion_id,
+                    created=created,
+                    model=model,
+                    choices=[
+                        StreamChoice(
+                            index=0,
+                            delta=Delta(content=f"\n\n[error] {payload}"),
+                            finish_reason="stop",
+                        )
+                    ],
+                )
+                yield f"data: {err.model_dump_json()}\n\n"
+                yield "data: [DONE]\n\n"
+                await producer
+                return
+    finally:
+        await producer
+
+    final = ChatCompletionChunk(
+        id=completion_id,
+        created=created,
+        model=model,
+        choices=[StreamChoice(index=0, delta=Delta(), finish_reason=finish_reason)],
+    )
+    yield f"data: {final.model_dump_json()}\n\n"
+    yield "data: [DONE]\n\n"
+
+
+def create_app() -> FastAPI:
+    return app
