@@ -268,7 +268,9 @@ class SwarmRegistry:
                 raise KeyError(host_id)
             if host.role == "mother":
                 raise ValueError("Cannot leave as mother via this API")
-            range_to_reclaim = host.block_indices if host.status in ("online", "pending") else None
+            # Pending hosts never shrunk the donor — reclaiming would be wrong and
+            # can leave permanent holes (e.g. 18:22) after cleanup of failed joins.
+            range_to_reclaim = host.block_indices if host.status == "online" else None
             del self.hosts[host_id]
 
         if range_to_reclaim:

@@ -61,6 +61,8 @@ export IDENTITY_PATH="${LOG_DIR}/petals-identity-contributor"
 export PETALS_PYTHON="${HOME}/.blitzwing-venv/bin/python"
 export SHARD_AUTO_START=1
 export ANNOUNCE_MADDRS="$ANNOUNCE"
+export PETALS_USE_AUTO_RELAY=0
+export PETALS_SKIP_REACHABILITY_CHECK=1
 export PETALS_DEVICE=cpu
 export PETALS_QUANT_TYPE=none
 
@@ -101,12 +103,30 @@ if [[ -z "$PEER_MADDR" ]]; then
 fi
 echo "PEER_MADDR=$PEER_MADDR"
 
-# Do NOT pass peer_multiaddr into ready: mother reload would replace its
-# bootstrap peers with that single addr. Mother keeps bootstrap_peers; DHT
-# discovers the contributor via announced blocks.
-curl -sf -X POST "$MOTHER_URL/v1/hosts/ready" \
-  -H "Content-Type: application/json" \
-  -d "{\"host_id\":\"${HOST_ID}\"}" | python3 -m json.tool
+echo "waiting 45s for DHT propagation..."
+sleep 45
+
+python3 - "$HOST_ID" "$PEER_MADDR" "$MOTHER_URL" <<'PY'
+import json, sys, urllib.request, urllib.error
+host_id, peer, mother = sys.argv[1], sys.argv[2], sys.argv[3]
+payload = {"host_id": host_id}
+if peer:
+    payload["peer_multiaddr"] = peer
+body = json.dumps(payload).encode()
+req = urllib.request.Request(
+    f"{mother}/v1/hosts/ready",
+    data=body,
+    headers={"Content-Type": "application/json"},
+    method="POST",
+)
+try:
+    with urllib.request.urlopen(req, timeout=150) as r:
+        print("READY_STATUS", r.status)
+        print(r.read().decode())
+except urllib.error.HTTPError as e:
+    print("READY_STATUS", e.code)
+    print(e.read().decode())
+PY
 
 # Keep heartbeat so host stays online for payouts
 nohup bash -c "while true; do curl -sf -X POST '${MOTHER_URL}/v1/hosts/heartbeat' -H 'Content-Type: application/json' -d '{\"host_id\":\"${HOST_ID}\"}' >/dev/null || true; sleep 60; done" \

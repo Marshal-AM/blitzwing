@@ -173,6 +173,37 @@ class PetalsEngine:
         self.unload()
         self.load()
 
+    def schedule_reload(self, *, delay_seconds: float = 8.0, max_attempts: int = 5) -> None:
+        """Reload the Petals client in a background thread after mother shard settles."""
+
+        def _run() -> None:
+            if delay_seconds > 0:
+                time.sleep(delay_seconds)
+            last_exc: Optional[Exception] = None
+            for attempt in range(1, max_attempts + 1):
+                try:
+                    self.reload()
+                    logger.info("Background Petals client reload complete (attempt %s)", attempt)
+                    return
+                except Exception as exc:  # noqa: BLE001
+                    last_exc = exc
+                    wait = min(30, 4 * attempt)
+                    logger.warning(
+                        "Background Petals client reload failed (attempt %s/%s): %s; retry in %ss",
+                        attempt,
+                        max_attempts,
+                        exc,
+                        wait,
+                    )
+                    time.sleep(wait)
+            logger.exception(
+                "Background Petals client reload failed after %s attempts",
+                max_attempts,
+                exc_info=last_exc,
+            )
+
+        threading.Thread(target=_run, name="petals-reload", daemon=True).start()
+
     def _generate_once(
         self,
         messages: Sequence[dict],

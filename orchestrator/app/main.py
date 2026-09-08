@@ -16,6 +16,7 @@ from orchestrator.app.engine import get_engine, new_completion_id, now_ts
 from orchestrator.app.errors import MissingBlocksServiceError
 from orchestrator.app.hedera_payouts import get_payout_service
 from orchestrator.app.registry import get_registry, init_registry
+from orchestrator.app.peer_verify import contributor_precheck_passed
 from orchestrator.app.swarm_verify import verify_blocks_visible
 from orchestrator.app.schemas import (
     ChatCompletionChunk,
@@ -226,6 +227,19 @@ async def hosts_join(body: HostJoinRequest) -> HostJoinResponse:
     return HostJoinResponse(**result)
 
 
+async def _background_dht_verify(engine, block_range: str, timeout_seconds: int) -> None:
+    try:
+        await asyncio.to_thread(
+            verify_blocks_visible,
+            engine,
+            block_range,
+            timeout_seconds=timeout_seconds,
+        )
+        logger.info("Background DHT verify OK for blocks %s", block_range)
+    except Exception:  # noqa: BLE001
+        logger.exception("Background DHT verify failed for blocks %s", block_range)
+
+
 @app.post("/v1/hosts/ready")
 async def hosts_ready(body: HostReadyRequest) -> dict:
     """
@@ -250,35 +264,74 @@ async def hosts_ready(body: HostReadyRequest) -> dict:
             }
         block_range = pending.pending_range or pending.block_indices
 
-        # Step 1: Inject contributor peer into engine for reload
         if body.peer_multiaddr:
-            logger.info("Injecting contributor peer %s into engine", body.peer_multiaddr)
-            engine.add_peer(body.peer_multiaddr)
+            # Never treat mother's own bootstrap addr as the contributor peer.
+            if body.peer_multiaddr in (settings.initial_peers or []) or body.peer_multiaddr in (
+                registry.bootstrap_peers or []
+            ):
+                logger.warning(
+                    "Ignoring peer_multiaddr that matches mother bootstrap: %s",
+                    body.peer_multiaddr,
+                )
+                body.peer_multiaddr = None
+            else:
+                logger.info("Injecting contributor peer %s into engine", body.peer_multiaddr)
+                engine.add_peer(body.peer_multiaddr)
 
-        # Step 2: Reload engine with new peer — FAIL if this fails
-        try:
-            await asyncio.to_thread(engine.reload)
-            logger.info("Petals client reloaded with contributor peer for %s", body.host_id)
-        except Exception as reload_exc:
-            logger.exception("Engine reload failed for %s — aborting handoff", body.host_id)
-            raise RuntimeError(
-                f"Petals client reload failed after adding peer: {reload_exc}. "
-                "Check contributor peer reachability and try again."
-            ) from reload_exc
+        fast_path = await asyncio.to_thread(
+            contributor_precheck_passed,
+            shard_manager_url=pending.shard_manager_url,
+            block_indices=block_range,
+            peer_multiaddr=body.peer_multiaddr,
+            known_bootstrap_peers=list(settings.initial_peers) + list(registry.bootstrap_peers),
+        )
 
-        # Step 3: Verify blocks visible in DHT (with fresh peer knowledge)
-        if not settings.skip_ready_verify:
+        # NAT / auto-relay contributors often have no public peer multiaddr and a private
+        # shard_manager_url. Blocking DHT verify hangs — accept handoff and reload later.
+        relay_only = not body.peer_multiaddr and not fast_path
+
+        if fast_path or relay_only or settings.skip_ready_verify:
+            if relay_only and not settings.skip_ready_verify:
+                logger.warning(
+                    "No public peer/HTTP reachability for %s — completing handoff via relay path "
+                    "(skipping blocking DHT verify)",
+                    body.host_id,
+                )
+            elif settings.skip_ready_verify and not fast_path:
+                logger.warning("SKIP_READY_VERIFY=1 — accepting handoff without reachability check")
+            else:
+                logger.info(
+                    "Contributor precheck passed for %s — completing handoff without blocking DHT",
+                    body.host_id,
+                )
+            # mark_ready reloads mother Petals (shrink). Delay client reload until after.
+            host = await asyncio.to_thread(registry.mark_ready, body.host_id, body.peer_multiaddr)
+            await asyncio.to_thread(engine.schedule_reload, delay_seconds=12.0, max_attempts=6)
+            if not settings.skip_ready_verify and not relay_only:
+                asyncio.create_task(
+                    _background_dht_verify(engine, block_range, settings.ready_verify_timeout_seconds)
+                )
+        else:
+            # Public peer present but precheck failed — verify BEFORE shrinking mother.
+            try:
+                await asyncio.to_thread(engine.reload)
+                logger.info("Petals client reloaded with contributor peer for %s", body.host_id)
+            except Exception as reload_exc:
+                logger.exception("Engine reload failed for %s — aborting handoff", body.host_id)
+                raise RuntimeError(
+                    f"Petals client reload failed after adding peer: {reload_exc}. "
+                    "Check contributor peer reachability and try again."
+                ) from reload_exc
+
             await asyncio.to_thread(
                 verify_blocks_visible,
                 engine,
                 block_range,
                 timeout_seconds=settings.ready_verify_timeout_seconds,
             )
-        else:
-            logger.warning("SKIP_READY_VERIFY=1 — accepting handoff without DHT check")
+            host = await asyncio.to_thread(registry.mark_ready, body.host_id, body.peer_multiaddr)
+            await asyncio.to_thread(engine.schedule_reload, delay_seconds=12.0, max_attempts=6)
 
-        # Step 4: Mark host as online in registry and shrink donor
-        host = await asyncio.to_thread(registry.mark_ready, body.host_id, body.peer_multiaddr)
         logger.info("Handoff complete: %s is online with blocks %s", body.host_id, host.block_indices)
 
     except KeyError as exc:

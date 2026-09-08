@@ -29,7 +29,7 @@ req = urllib.request.Request(
     method=method,
 )
 try:
-    with urllib.request.urlopen(req, timeout=180) as r:
+    with urllib.request.urlopen(req, timeout=300) as r:
         print(r.read().decode())
 except urllib.error.HTTPError as e:
     print(e.read().decode(), file=sys.stderr)
@@ -38,7 +38,9 @@ PY
 }
 
 echo "== cleanup stale contributor =="
-fuser -k "${SHARD_PORT}/tcp" "${PETALS_PORT}/tcp" 2>/dev/null || true
+pkill -9 -x ngrok 2>/dev/null || true
+pkill -9 -f 'ngrok tcp' 2>/dev/null || true
+fuser -k "${SHARD_PORT}/tcp" "${PETALS_PORT}/tcp" 4040/tcp 2>/dev/null || true
 pkill -f "uvicorn shard_manager.app:app --host 0.0.0.0 --port ${SHARD_PORT}" 2>/dev/null || true
 pkill -f "petals.cli.run_server.*${PETALS_PORT}" 2>/dev/null || true
 sleep 2
@@ -73,8 +75,8 @@ HOST_ID="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["host_id"])' 
 BLOCKS="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["block_indices"])' <<<"$ASSIGNMENT")"
 PEERS="$(python3 -c 'import json,sys; print(",".join(json.load(sys.stdin).get("initial_peers",[])))' <<<"$ASSIGNMENT")"
 
-# Start ngrok TCP tunnel if not already running (reliable public announce for WSL).
-if ! curl -sf http://127.0.0.1:4040/api/tunnels >/dev/null 2>&1; then
+# Start ngrok TCP tunnel only when explicitly requested (ngrok breaks libp2p DHT from GCP).
+if [[ "${BLITZWING_USE_NGROK:-0}" == "1" ]] && ! curl -sf http://127.0.0.1:4040/api/tunnels >/dev/null 2>&1; then
   if command -v ngrok >/dev/null 2>&1; then
     echo "starting ngrok tcp ${PETALS_PORT}…"
     setsid ngrok tcp "${PETALS_PORT}" --log=stdout > "${LOG_DIR}/ngrok_contrib.out" 2>&1 < /dev/null &
@@ -154,12 +156,17 @@ if [[ -n "$SAVED_ANNOUNCE" ]]; then
     PEER_MADDR="${SAVED_ANNOUNCE}/p2p/${P2P}"
   fi
 else
-  PEER_MADDR="$(grep -oE '/ip[46]/[^ ]+/p2p/[A-Za-z0-9]+' "${LOG_DIR}/contrib_shard.out" | grep -v '127.0.0.1' | head -1 || true)"
+  # Prefer the contributor's own listen addr from "Running a server on", never bootstrap peers.
+  PEER_MADDR="$(grep -oE "Running a server on \\['([^']+)'\\]" "${LOG_DIR}/contrib_shard.out" | tail -1 | sed -E "s/.*\\['([^']+)'\\].*/\\1/" || true)"
+  if [[ -z "$PEER_MADDR" || "$PEER_MADDR" == *"172."* || "$PEER_MADDR" == *"192.168."* || "$PEER_MADDR" == *"127.0.0.1"* ]]; then
+    # Auto-relay: mother reaches us via DHT/relay — omit peer_multiaddr rather than sending junk.
+    PEER_MADDR=""
+  fi
 fi
 echo "PEER_MADDR=${PEER_MADDR:-<none>}"
 
 READY_BODY="{\"host_id\":\"${HOST_ID}\""
-if [[ -n "$PEER_MADDR" && "$PEER_MADDR" != *"172."* && "$PEER_MADDR" != *"192.168."* ]]; then
+if [[ -n "$PEER_MADDR" ]]; then
   READY_BODY+=",\"peer_multiaddr\":\"${PEER_MADDR}\""
 fi
 READY_BODY+="}"
