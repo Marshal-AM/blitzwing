@@ -28,9 +28,14 @@ ensure_python311() {
     export PATH="${HOME}/.local/bin:${PATH}"
   fi
   echo "== creating Python 3.11 venv via uv =="
+  export PATH="${HOME}/.local/bin:${PATH}"
   uv python install 3.11
-  uv venv "${HOME}/venv" --python 3.11
-  "${HOME}/venv/bin/pip" install -U pip wheel setuptools
+  uv venv "${HOME}/venv" --python 3.11 --seed
+}
+
+pip_install() {
+  export PATH="${HOME}/.local/bin:${PATH}"
+  uv pip install --python "${PY}" "$@"
 }
 
 echo "== GCP contributor (public IP) =="
@@ -49,16 +54,15 @@ if ! deps_ready; then
   echo "== installing Petals deps (first run) — log: ${LOG_DIR}/pip_install.log =="
   sudo apt-get update -y
   sudo DEBIAN_FRONTEND=noninteractive apt-get install -y build-essential git
-  PIP="${HOME}/venv/bin/pip"
   : > "${LOG_DIR}/pip_install.log"
   {
     echo "== pip install torch =="
-    "$PIP" install torch --index-url https://download.pytorch.org/whl/cpu
+    pip_install torch --index-url https://download.pytorch.org/whl/cpu
     echo "== pip install petals =="
-    "$PIP" install -e "${ROOT}/petals"
+    pip_install -e "${ROOT}/petals"
     echo "== pip install shard_manager + orchestrator reqs =="
-    "$PIP" install -r "${ROOT}/shard_manager/requirements.txt"
-    "$PIP" install -r "${ROOT}/orchestrator/requirements.txt"
+    pip_install -r "${ROOT}/shard_manager/requirements.txt"
+    pip_install -r "${ROOT}/orchestrator/requirements.txt"
     echo "== deps OK =="
     "$PY" -c "import petals, uvicorn, fastapi; print('deps ready')"
   } 2>&1 | tee -a "${LOG_DIR}/pip_install.log"
