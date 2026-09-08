@@ -71,23 +71,11 @@ class PetalsEngine:
                     self._tokenizer.pad_token = self._tokenizer.eos_token
 
                 from petals import AutoDistributedModelForCausalLM
-                from hivemind import DHT
 
-                dht_kwargs = {
-                    "initial_peers": self.settings.initial_peers,
-                    "client_mode": True,
-                    "start": True,
-                }
-                if self.settings.petals_use_auto_relay:
-                    dht_kwargs["use_relay"] = True
-                    dht_kwargs["use_auto_relay"] = True
-
-                dht = DHT(**dht_kwargs)
                 self._model = AutoDistributedModelForCausalLM.from_pretrained(
                     self.settings.model_name,
                     initial_peers=self.settings.initial_peers,
                     torch_dtype="auto",
-                    dht=dht,
                 )
                 self._load_error = None
                 logger.info("Petals client ready")
