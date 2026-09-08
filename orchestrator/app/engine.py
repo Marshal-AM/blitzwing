@@ -12,6 +12,7 @@ from typing import Generator, Iterable, List, Optional, Sequence
 import torch
 from transformers import AutoTokenizer, TextIteratorStreamer
 
+from orchestrator.app.config import Settings, get_settings
 from orchestrator.app.errors import MissingBlocksServiceError
 
 logger = logging.getLogger(__name__)
