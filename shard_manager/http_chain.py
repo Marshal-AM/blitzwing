@@ -25,28 +25,51 @@ def _is_public_http_url(url: str) -> bool:
         return False
     if url.startswith("http://172.") or url.startswith("http://192.168."):
         return False
+    if url.startswith("http://10."):
+        return False
     return url.startswith("http://") or url.startswith("https://")
 
 
+def _is_reachable_mother_url(url: str) -> bool:
+    """Public HTTP URL that is not the blocked shard-manager port."""
+    if not _is_public_http_url(url):
+        return False
+    # Contributors reach mother through the gateway (:8000), not shard :8001.
+    if url.rstrip("/").endswith(":8001"):
+        return False
+    return True
+
+
 def resolve_mother_shard_url(manifest: dict) -> str:
-    """Find a reachable HTTP URL for the mother's shard manager."""
-    override = (os.getenv("MOTHER_PUBLIC_SHARD_URL") or "").strip().rstrip("/")
-    if override:
-        return override
+    """Find a reachable HTTP URL for the mother's prefix endpoint (via gateway)."""
+    for env_key in ("MOTHER_PUBLIC_SHARD_URL",):
+        override = (os.getenv(env_key) or "").strip().rstrip("/")
+        if override:
+            return override
+
+    gateway = (
+        os.getenv("MOTHER_URL")
+        or os.getenv("BLITZWING_MOTHER_URL")
+        or os.getenv("MOTHER_PUBLIC_GATEWAY_URL")
+        or ""
+    ).strip().rstrip("/")
+    if gateway:
+        return gateway
+
     for host in manifest.get("hosts", []):
         if host.get("role") != "mother":
             continue
         url = (host.get("shard_manager_url") or "").rstrip("/")
-        if _is_public_http_url(url):
+        if _is_reachable_mother_url(url):
             return url
         public_ip = host.get("public_ip")
         if public_ip:
-            return f"http://{public_ip}:8001"
-    gateway = (os.getenv("MOTHER_URL") or os.getenv("BLITZWING_MOTHER_URL") or "").strip()
-    if gateway:
-        # Contributor reaches mother via the public gateway (:8000), not shard :8001.
-        return gateway.rstrip("/")
-    raise RuntimeError("Cannot resolve mother shard_manager_url from swarm manifest")
+            # Gateway port, not shard manager.
+            return f"http://{public_ip}:8000"
+    raise RuntimeError(
+        "Cannot resolve mother prefix URL from swarm manifest "
+        "(set BLITZWING_MOTHER_URL or MOTHER_PUBLIC_SHARD_URL)"
+    )
 
 
 def mother_prefix_blocks(manifest: dict) -> str:
@@ -77,6 +100,7 @@ class HttpChainInference:
         mother_blocks = mother_prefix_blocks(swarm_manifest)
         _, mother_end = parse_range(mother_blocks)
         local_start, local_end = parse_range(self.local_block_indices)
+        prefix_timeout = float(os.getenv("HTTP_CHAIN_PREFIX_TIMEOUT", "120"))
 
         if local_start != mother_end:
             logger.warning(
@@ -104,11 +128,18 @@ class HttpChainInference:
         input_ids = tokenizer(prompt, return_tensors="pt")["input_ids"]
         prompt_tokens = int(input_ids.shape[-1])
         max_new_tokens = max(1, min(int(max_tokens), 512))
+        logger.info(
+            "HTTP chain: mother=%s blocks=%s local=%s max_tokens=%s",
+            mother_url,
+            mother_blocks,
+            self.local_block_indices,
+            max_new_tokens,
+        )
         generated: List[int] = []
         finish_reason = "stop"
 
-        with httpx.Client(timeout=300.0) as client:
-            for _ in range(max_new_tokens):
+        with httpx.Client(timeout=prefix_timeout) as client:
+            for step in range(max_new_tokens):
                 full_ids = torch.cat(
                     [input_ids, torch.tensor([generated], dtype=input_ids.dtype)],
                     dim=-1,
@@ -120,6 +151,7 @@ class HttpChainInference:
                 )
                 prefix_resp.raise_for_status()
                 hidden = tensor_from_payload(prefix_resp.json()["hidden"])
+                logger.debug("HTTP chain step %s: mother prefix ok", step)
 
                 hidden = self.runner.forward_tail(hidden)
                 logits = self.runner.logits_from_hidden(hidden)

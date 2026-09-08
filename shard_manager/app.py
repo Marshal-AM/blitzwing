@@ -239,12 +239,31 @@ def _petals_log_path() -> str:
     return str(Path.home() / ".blitzwing" / "contrib_shard.out")
 
 
+def _reset_inference_caches() -> None:
+    """Drop cached runners after Petals reload so block ranges stay in sync."""
+    global _local_runner, _http_chain
+    if _local_runner is not None or _http_chain is not None:
+        logger.info("Resetting inference caches (blocks=%s)", manager.block_indices)
+    _local_runner = None
+    _http_chain = None
+
+
 def _get_local_runner() -> LocalShardRunner:
     global _local_runner
+    blocks = manager.block_indices
+    if _local_runner is not None:
+        current = f"{_local_runner.block_start}:{_local_runner.block_end}"
+        if current != blocks:
+            logger.warning(
+                "LocalShardRunner stale (%s != %s); recreating",
+                current,
+                blocks,
+            )
+            _reset_inference_caches()
     if _local_runner is None:
         _local_runner = LocalShardRunner(
             manager.model,
-            manager.block_indices,
+            blocks,
             local_port=manager.port,
             log_path=_petals_log_path(),
         )
@@ -261,6 +280,18 @@ def _get_http_chain() -> HttpChainInference:
     return _http_chain
 
 
+def _prewarm_local_runner() -> None:
+    for _ in range(120):
+        if manager.status().running:
+            break
+        time.sleep(2)
+    try:
+        _get_local_runner()
+        logger.info("LocalShardRunner pre-warmed for HTTP chain prefix")
+    except Exception:  # noqa: BLE001
+        logger.exception("LocalShardRunner pre-warm failed")
+
+
 @app.on_event("startup")
 def on_startup() -> None:
     maybe_start_from_env(manager)
@@ -270,21 +301,9 @@ def on_startup() -> None:
         except Exception:  # noqa: BLE001
             logger.exception("Failed to auto-start Petals server")
 
-    # Pre-warm LocalShardRunner in background so /v1/chain/prefix doesn't block the server.
-    def _prewarm() -> None:
-        import time
-
-        for _ in range(120):
-            if manager.status().running:
-                break
-            time.sleep(2)
-        try:
-            _get_local_runner()
-            logger.info("LocalShardRunner pre-warmed for HTTP chain prefix")
-        except Exception:  # noqa: BLE001
-            logger.exception("LocalShardRunner pre-warm failed")
-
-    threading.Thread(target=_prewarm, name="prefix-prewarm", daemon=True).start()
+    threading.Thread(
+        target=_prewarm_local_runner, name="prefix-prewarm", daemon=True
+    ).start()
 
 
 @app.on_event("shutdown")
@@ -312,6 +331,10 @@ def reload(body: ReloadRequest) -> StatusResponse:
         manager.reload(body.block_indices, initial_peers=body.initial_peers)
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+    _reset_inference_caches()
+    threading.Thread(
+        target=_prewarm_local_runner, name="prefix-prewarm", daemon=True
+    ).start()
     # Give process a moment to spawn
     time.sleep(0.5)
     return manager.status()
@@ -356,7 +379,7 @@ async def chain_prefix(body: PrefixRequest) -> PrefixResponse:
 
 
 @app.post("/v1/chat/completions", response_model=ChatInferenceResponse)
-def chat_completions(body: ChatInferenceRequest) -> ChatInferenceResponse:
+async def chat_completions(body: ChatInferenceRequest) -> ChatInferenceResponse:
     """
     HTTP-chained inference: mother prefix via HTTP, tail blocks local only.
     No libp2p/DHT between nodes.
@@ -369,7 +392,8 @@ def chat_completions(body: ChatInferenceRequest) -> ChatInferenceResponse:
             status_code=400,
             detail="swarm_manifest required for distributed HTTP inference",
         )
-    try:
+
+    def _run() -> ChatInferenceResponse:
         result = _get_http_chain().generate(
             body.messages,
             max_tokens=body.max_tokens,
@@ -377,12 +401,16 @@ def chat_completions(body: ChatInferenceRequest) -> ChatInferenceResponse:
             top_p=body.top_p,
             swarm_manifest=body.swarm_manifest,
         )
+        return ChatInferenceResponse(
+            text=result.text,
+            prompt_tokens=result.prompt_tokens,
+            completion_tokens=result.completion_tokens,
+            finish_reason=result.finish_reason,
+        )
+
+    try:
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(_inference_executor, _run)
     except Exception as exc:  # noqa: BLE001
         logger.exception("Contributor HTTP-chained inference failed")
         raise HTTPException(status_code=503, detail=str(exc)) from exc
-    return ChatInferenceResponse(
-        text=result.text,
-        prompt_tokens=result.prompt_tokens,
-        completion_tokens=result.completion_tokens,
-        finish_reason=result.finish_reason,
-    )

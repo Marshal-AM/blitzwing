@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import time
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
@@ -33,21 +34,27 @@ class SwarmManifest:
     spans: List[LayerSpan]
 
     def to_dict(self) -> dict:
-        return {
-            "model": self.model,
-            "total_layers": self.total_layers,
-            "hosts": [
+        mother_public = (os.getenv("MOTHER_PUBLIC_GATEWAY_URL") or "").strip().rstrip("/")
+        hosts = []
+        for s in self.spans:
+            shard_url = s.shard_manager_url
+            if s.role == "mother" and mother_public:
+                shard_url = mother_public
+            hosts.append(
                 {
                     "host_id": s.host_id,
                     "role": s.role,
                     "block_indices": s.block_indices,
                     "layers_hosted": s.end - s.start,
-                    "shard_manager_url": s.shard_manager_url,
+                    "shard_manager_url": shard_url,
                     "peer_multiaddr": s.peer_multiaddr,
                     "petals_running": s.petals_running,
                 }
-                for s in self.spans
-            ],
+            )
+        return {
+            "model": self.model,
+            "total_layers": self.total_layers,
+            "hosts": hosts,
         }
 
     def peer_multiaddrs(self) -> List[str]:

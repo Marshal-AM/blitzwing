@@ -7,6 +7,7 @@ from typing import List, Optional, Sequence
 
 import httpx
 
+from orchestrator.app.config import get_settings
 from orchestrator.app.engine import GenerationResult
 from orchestrator.app.swarm_map import LayerSpan, SwarmManifest, pick_http_inference_host
 
@@ -21,9 +22,15 @@ def generate_via_contributor_http(
     max_tokens: Optional[int] = None,
     temperature: Optional[float] = 0.7,
     top_p: Optional[float] = 0.9,
-    timeout_seconds: float = 180.0,
+    timeout_seconds: float | None = None,
 ) -> GenerationResult:
     """POST chat completion to contributor with mother's authoritative swarm manifest."""
+    settings = get_settings()
+    effective_timeout = (
+        timeout_seconds
+        if timeout_seconds is not None
+        else float(settings.inference_timeout_seconds)
+    )
     url = f"{contributor.shard_manager_url.rstrip('/')}/v1/chat/completions"
     payload = {
         "messages": list(messages),
@@ -38,7 +45,7 @@ def generate_via_contributor_http(
         contributor.block_indices,
         url,
     )
-    with httpx.Client(timeout=timeout_seconds) as client:
+    with httpx.Client(timeout=effective_timeout) as client:
         resp = client.post(url, json=payload)
         resp.raise_for_status()
         data = resp.json()

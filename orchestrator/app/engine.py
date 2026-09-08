@@ -13,7 +13,7 @@ import torch
 from transformers import AutoTokenizer, TextIteratorStreamer
 
 from orchestrator.app.config import Settings, get_settings
-from orchestrator.app.errors import MissingBlocksServiceError
+from orchestrator.app.errors import MissingBlocksServiceError, HttpInferenceError
 
 logger = logging.getLogger(__name__)
 
@@ -280,11 +280,15 @@ class PetalsEngine:
                     top_p=top_p,
                 )
             except Exception as exc:  # noqa: BLE001
-                logger.warning(
-                    "HTTP inference via contributor %s failed (%s); falling back to local Petals",
+                logger.error(
+                    "HTTP inference via contributor %s failed: %s",
                     contributor.host_id,
                     exc,
                 )
+                raise HttpInferenceError(
+                    f"Distributed HTTP inference via {contributor.host_id} failed: {exc}",
+                    host_id=contributor.host_id,
+                ) from exc
 
         from petals.client.routing.sequence_manager import MissingBlocksError
 

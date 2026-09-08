@@ -36,6 +36,10 @@ const baseURL = (
 ).replace(/\/v1\/?$/, "");
 const endpointPath = process.env.ENDPOINT_PATH || "/v1/chat/completions";
 const model = process.env.BLITZWING_MODEL || "bigscience/bloom-560m";
+const maxTokens = Math.max(
+  1,
+  Number.parseInt(process.env.BLITZWING_MAX_TOKENS || "16", 10) || 16,
+);
 const query =
   process.env.BLITZWING_QUERY || "Say hello in one short friendly sentence.";
 
@@ -87,6 +91,7 @@ async function main(): Promise<void> {
   console.log(`resource : ${url}`);
   console.log(`payer    : ${hederaAccountId}`);
   console.log(`model    : ${model}`);
+  console.log(`max_tok  : ${maxTokens}`);
   console.log(`query    : ${query}`);
 
   const key = parsePrivateKey(privateKeyRaw);
@@ -119,7 +124,7 @@ async function main(): Promise<void> {
         },
         { role: "user", content: query },
       ],
-      max_tokens: 64,
+      max_tokens: maxTokens,
       temperature: 0.7,
       stream: false,
     }),

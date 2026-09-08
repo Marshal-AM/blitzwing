@@ -13,7 +13,7 @@ from fastapi.responses import StreamingResponse
 
 from orchestrator.app.config import get_settings
 from orchestrator.app.engine import get_engine, new_completion_id, now_ts
-from orchestrator.app.errors import MissingBlocksServiceError
+from orchestrator.app.errors import MissingBlocksServiceError, HttpInferenceError
 from orchestrator.app.hedera_payouts import get_payout_service
 from orchestrator.app.registry import get_registry, init_registry
 from orchestrator.app.peer_verify import contributor_precheck_passed
@@ -582,6 +582,8 @@ async def chat_completions(
             ),
         ) from None
     except MissingBlocksServiceError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except HttpInferenceError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc

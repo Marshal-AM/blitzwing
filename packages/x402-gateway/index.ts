@@ -352,7 +352,10 @@ async function createApp(): Promise<Hono> {
       init.body = await c.req.arrayBuffer();
     }
     try {
-      const up = await fetch(url, init);
+      const up = await fetch(url, {
+        ...init,
+        signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
+      });
       const upBody = await up.arrayBuffer();
       return new Response(upBody, {
         status: up.status,

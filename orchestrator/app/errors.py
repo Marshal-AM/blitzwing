@@ -23,3 +23,11 @@ class MissingBlocksServiceError(Exception):
                 "Required model blocks are not reachable in the swarm. "
                 "Contributors may be behind NAT without relay, or still loading."
             )
+
+
+class HttpInferenceError(Exception):
+    """Distributed HTTP inference to a contributor failed."""
+
+    def __init__(self, message: str, *, host_id: str | None = None) -> None:
+        self.host_id = host_id
+        super().__init__(message)

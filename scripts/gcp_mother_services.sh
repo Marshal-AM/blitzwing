@@ -85,6 +85,8 @@ export INITIAL_PEERS="${BOOTSTRAP}"
 export ANNOUNCE_PEERS="${BOOTSTRAP}"
 export LOAD_AT_STARTUP=1
 export API_PORT=8002
+export INFERENCE_TIMEOUT_SECONDS="${INFERENCE_TIMEOUT_SECONDS:-600}"
+export MOTHER_PUBLIC_GATEWAY_URL="http://${PUBLIC_IP}:8000"
 cd "$ROOT"
 nohup "$PY" -m uvicorn orchestrator.app.main:app --host 127.0.0.1 --port 8002 \
   > "${HOME}/blitzwing-logs/orchestrator.log" 2>&1 &
