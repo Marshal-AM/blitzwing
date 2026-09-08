@@ -228,6 +228,13 @@ async def hosts_join(body: HostJoinRequest) -> HostJoinResponse:
 
 @app.post("/v1/hosts/ready")
 async def hosts_ready(body: HostReadyRequest) -> dict:
+    """
+    Finalize contributor handoff. Reordered flow for reliability:
+    1. Inject contributor peer into engine
+    2. Reload engine (fail if this fails)
+    3. Verify blocks visible in DHT (with fresh peer knowledge)
+    4. Mark host as online in registry
+    """
     settings = get_settings()
     registry = get_registry()
     engine = get_engine()
@@ -242,6 +249,24 @@ async def hosts_ready(body: HostReadyRequest) -> dict:
                 "hedera_account_id": pending.hedera_account_id,
             }
         block_range = pending.pending_range or pending.block_indices
+
+        # Step 1: Inject contributor peer into engine for reload
+        if body.peer_multiaddr:
+            logger.info("Injecting contributor peer %s into engine", body.peer_multiaddr)
+            engine.add_peer(body.peer_multiaddr)
+
+        # Step 2: Reload engine with new peer — FAIL if this fails
+        try:
+            await asyncio.to_thread(engine.reload)
+            logger.info("Petals client reloaded with contributor peer for %s", body.host_id)
+        except Exception as reload_exc:
+            logger.exception("Engine reload failed for %s — aborting handoff", body.host_id)
+            raise RuntimeError(
+                f"Petals client reload failed after adding peer: {reload_exc}. "
+                "Check contributor peer reachability and try again."
+            ) from reload_exc
+
+        # Step 3: Verify blocks visible in DHT (with fresh peer knowledge)
         if not settings.skip_ready_verify:
             await asyncio.to_thread(
                 verify_blocks_visible,
@@ -251,15 +276,11 @@ async def hosts_ready(body: HostReadyRequest) -> dict:
             )
         else:
             logger.warning("SKIP_READY_VERIFY=1 — accepting handoff without DHT check")
+
+        # Step 4: Mark host as online in registry and shrink donor
         host = await asyncio.to_thread(registry.mark_ready, body.host_id, body.peer_multiaddr)
-        try:
-            await asyncio.to_thread(get_engine().reload)
-            logger.info("Petals client reloaded after handoff for %s", body.host_id)
-        except Exception:  # noqa: BLE001
-            logger.exception(
-                "Engine reload after handoff failed for %s; inference will retry reload",
-                body.host_id,
-            )
+        logger.info("Handoff complete: %s is online with blocks %s", body.host_id, host.block_indices)
+
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except RuntimeError as exc:

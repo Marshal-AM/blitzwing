@@ -35,6 +35,7 @@ class PetalsEngine:
         self._model = None
         self._lock = threading.Lock()
         self._load_error: Optional[str] = None
+        self._extra_peers: List[str] = []
 
     @property
     def model_name(self) -> str:
@@ -48,11 +49,33 @@ class PetalsEngine:
     def load_error(self) -> Optional[str]:
         return self._load_error
 
+    def get_effective_peers(self) -> List[str]:
+        """Return initial_peers merged with any extra peers added at runtime."""
+        base = list(self.settings.initial_peers)
+        for p in self._extra_peers:
+            if p and p not in base:
+                base.append(p)
+        return base
+
+    def add_peer(self, peer: str) -> None:
+        """Add a peer multiaddr for the next load/reload."""
+        with self._lock:
+            if peer and peer not in self._extra_peers:
+                self._extra_peers.append(peer)
+                logger.info("Added peer to engine: %s", peer)
+
+    def set_peers(self, peers: List[str]) -> None:
+        """Replace the extra peers list (base settings.initial_peers remain)."""
+        with self._lock:
+            self._extra_peers = [p for p in peers if p]
+            logger.info("Set engine extra peers: %s", self._extra_peers)
+
     def load(self) -> None:
         with self._lock:
             if self.is_loaded:
                 return
-            if not self.settings.initial_peers:
+            effective_peers = self.get_effective_peers()
+            if not effective_peers:
                 raise RuntimeError(
                     "INITIAL_PEERS is empty. Set it to the VM1 bootstrap multiaddr "
                     "(e.g. /ip4/<VM1_IP>/tcp/31337/p2p/<PEER_ID>)."
@@ -60,7 +83,7 @@ class PetalsEngine:
             logger.info(
                 "Loading Petals client model=%s peers=%s",
                 self.settings.model_name,
-                self.settings.initial_peers,
+                effective_peers,
             )
             try:
                 self._tokenizer = AutoTokenizer.from_pretrained(
@@ -74,11 +97,11 @@ class PetalsEngine:
 
                 self._model = AutoDistributedModelForCausalLM.from_pretrained(
                     self.settings.model_name,
-                    initial_peers=self.settings.initial_peers,
+                    initial_peers=effective_peers,
                     torch_dtype="auto",
                 )
                 self._load_error = None
-                logger.info("Petals client ready")
+                logger.info("Petals client ready with peers: %s", effective_peers)
             except Exception as exc:  # noqa: BLE001 — surface any connect/load failure
                 self._tokenizer = None
                 self._model = None

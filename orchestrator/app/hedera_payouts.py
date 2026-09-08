@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -13,6 +14,13 @@ from orchestrator.app.config import Settings
 from orchestrator.app.registry import HostRecord
 
 logger = logging.getLogger(__name__)
+
+
+def _is_valid_topic_id(topic_id: Optional[str]) -> bool:
+    """Validate Hedera topic ID format (0.0.xxxxx)."""
+    if not topic_id:
+        return False
+    return bool(re.match(r"^0\.0\.\d+$", topic_id.strip()))
 
 
 @dataclass
@@ -92,25 +100,31 @@ class HederaPayoutService:
     def ensure_hcs_topic(self) -> Optional[str]:
         if not self.enabled:
             return None
-        if self._topic_id:
+        if self._topic_id and _is_valid_topic_id(self._topic_id):
             return self._topic_id
         persisted = Path.home() / ".blitzwing" / "hcs_topic_id"
         if persisted.exists():
             tid = persisted.read_text(encoding="utf-8").strip()
-            if tid:
+            if tid and _is_valid_topic_id(tid):
                 self._topic_id = tid
                 return tid
+            elif tid:
+                logger.warning("Persisted HCS topic ID is invalid: %s — will create new", tid)
 
-        from hedera import TopicCreateTransaction
+        try:
+            from hedera import TopicCreateTransaction
 
-        client = self._ensure_client()
-        tx = TopicCreateTransaction().setTopicMemo("blitzwing-payouts")
-        resp = tx.execute(client)
-        receipt = resp.getReceipt(client)
-        topic_id = str(receipt.topicId)
-        logger.info("Created HCS topic %s", topic_id)
-        self._persist_topic_id(topic_id)
-        return topic_id
+            client = self._ensure_client()
+            tx = TopicCreateTransaction().setTopicMemo("blitzwing-payouts")
+            resp = tx.execute(client)
+            receipt = resp.getReceipt(client)
+            topic_id = str(receipt.topicId)
+            logger.info("Created HCS topic %s", topic_id)
+            self._persist_topic_id(topic_id)
+            return topic_id
+        except Exception:  # noqa: BLE001
+            logger.exception("Failed to create HCS topic (audit logs will be skipped)")
+            return None
 
     def plan_payouts(self, hosts: List[HostRecord]) -> List[HostPayout]:
         cpl = int(self.settings.cost_per_layer_tinybars)
@@ -145,29 +159,34 @@ class HederaPayoutService:
             if escrow_out:
                 topic_id = self.ensure_hcs_topic()
                 hcs_seq: Optional[str] = None
-                if topic_id:
-                    from hedera import TopicId, TopicMessageSubmitTransaction
+                if topic_id and _is_valid_topic_id(topic_id):
+                    try:
+                        from hedera import TopicId, TopicMessageSubmitTransaction
 
-                    client = self._ensure_client()
-                    payload = {
-                        "requestId": request_id,
-                        "x402TxId": x402_tx_id,
-                        "payoutTxId": escrow_out.get("payout_tx_id"),
-                        "escrowContractId": escrow_out.get("escrow_contract_id"),
-                        "costPerLayerTinybars": self.settings.cost_per_layer_tinybars,
-                        "hosts": escrow_out.get("hosts", []),
-                    }
-                    msg = TopicMessageSubmitTransaction().setTopicId(
-                        TopicId.fromString(topic_id)
-                    ).setMessage(json.dumps(payload, separators=(",", ":")))
-                    msg_resp = msg.execute(client)
-                    msg_receipt = msg_resp.getReceipt(client)
-                    hcs_seq = str(getattr(msg_receipt, "topicSequenceNumber", None))
+                        client = self._ensure_client()
+                        payload = {
+                            "requestId": request_id,
+                            "x402TxId": x402_tx_id,
+                            "payoutTxId": escrow_out.get("payout_tx_id"),
+                            "escrowContractId": escrow_out.get("escrow_contract_id"),
+                            "costPerLayerTinybars": self.settings.cost_per_layer_tinybars,
+                            "hosts": escrow_out.get("hosts", []),
+                        }
+                        msg = TopicMessageSubmitTransaction().setTopicId(
+                            TopicId.fromString(topic_id)
+                        ).setMessage(json.dumps(payload, separators=(",", ":")))
+                        msg_resp = msg.execute(client)
+                        msg_receipt = msg_resp.getReceipt(client)
+                        hcs_seq = str(getattr(msg_receipt, "topicSequenceNumber", None))
+                    except Exception:  # noqa: BLE001
+                        logger.exception("HCS audit log failed for escrow payout (non-fatal)")
+                elif topic_id:
+                    logger.warning("Invalid HCS_TOPIC_ID format: %s — skipping audit log", topic_id)
                 return PayoutReceipt(
                     request_id=request_id,
                     x402_tx_id=x402_tx_id,
                     payout_tx_id=escrow_out.get("payout_tx_id"),
-                    hcs_topic_id=topic_id,
+                    hcs_topic_id=topic_id if _is_valid_topic_id(topic_id) else None,
                     hcs_sequence=hcs_seq,
                     cost_per_layer_tinybars=self.settings.cost_per_layer_tinybars,
                     total_tinybars=int(escrow_out.get("total_tinybars", 0)),
@@ -234,23 +253,28 @@ class HederaPayoutService:
             }
             for p in planned
         ]
-        if topic_id:
-            from hedera import TopicId
+        if topic_id and _is_valid_topic_id(topic_id):
+            try:
+                from hedera import TopicId
 
-            payload = {
-                "requestId": request_id,
-                "x402TxId": x402_tx_id,
-                "payoutTxId": payout_tx_id,
-                "costPerLayerTinybars": self.settings.cost_per_layer_tinybars,
-                "hosts": host_rows,
-            }
-            msg = TopicMessageSubmitTransaction().setTopicId(TopicId.fromString(topic_id)).setMessage(
-                json.dumps(payload, separators=(",", ":"))
-            )
-            msg_resp = msg.execute(client)
-            msg_receipt = msg_resp.getReceipt(client)
-            hcs_seq = str(getattr(msg_receipt, "topicSequenceNumber", None))
-            logger.info("HCS audit logged topic=%s seq=%s", topic_id, hcs_seq)
+                payload = {
+                    "requestId": request_id,
+                    "x402TxId": x402_tx_id,
+                    "payoutTxId": payout_tx_id,
+                    "costPerLayerTinybars": self.settings.cost_per_layer_tinybars,
+                    "hosts": host_rows,
+                }
+                msg = TopicMessageSubmitTransaction().setTopicId(TopicId.fromString(topic_id)).setMessage(
+                    json.dumps(payload, separators=(",", ":"))
+                )
+                msg_resp = msg.execute(client)
+                msg_receipt = msg_resp.getReceipt(client)
+                hcs_seq = str(getattr(msg_receipt, "topicSequenceNumber", None))
+                logger.info("HCS audit logged topic=%s seq=%s", topic_id, hcs_seq)
+            except Exception:  # noqa: BLE001
+                logger.exception("HCS audit log failed for direct payout (non-fatal)")
+        elif topic_id:
+            logger.warning("Invalid HCS_TOPIC_ID format: %s — skipping audit log", topic_id)
 
         return PayoutReceipt(
             request_id=request_id,
