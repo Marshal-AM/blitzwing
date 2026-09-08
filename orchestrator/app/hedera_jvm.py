@@ -1,14 +1,16 @@
-"""Bootstrap JPype / JVM before java.* imports (required by hedera-sdk-py)."""
+"""Bootstrap the JVM for hedera-sdk-py (uses pyjnius, not JPype)."""
 
 from __future__ import annotations
 
 import logging
 import os
 from pathlib import Path
+from typing import Any, List
 
 logger = logging.getLogger(__name__)
 
 _JVM_READY = False
+_BigInteger = None
 
 
 def _discover_java_home() -> str | None:
@@ -27,35 +29,25 @@ def _discover_java_home() -> str | None:
 
 
 def ensure_java_vm() -> None:
-    """Start the JVM once so `from java.math import BigInteger` works."""
-    global _JVM_READY
-    if _JVM_READY:
+    """Ensure hedera/jnius can load java.math.BigInteger."""
+    global _JVM_READY, _BigInteger
+    if _JVM_READY and _BigInteger is not None:
         return
 
     java_home = _discover_java_home()
     if java_home:
         os.environ["JAVA_HOME"] = java_home
 
-    try:
-        import jpype
-        import jpype.imports  # noqa: F401
+    # hedera-sdk-py starts the JVM via jnius on import — do NOT start JPype first.
+    from hedera import AccountId  # noqa: F401
+    from jnius import autoclass
 
-        if not jpype.isJVMStarted():
-            jvm_path = jpype.getDefaultJVMPath()
-            logger.info("Starting JVM via JPype (%s)", jvm_path)
-            jpype.startJVM(jvm_path, convertStrings=True)
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("JPype startJVM failed (%s); trying hedera import", exc)
-        from hedera import Client  # noqa: F401
-
-    from java.math import BigInteger  # noqa: F401
-
+    _BigInteger = autoclass("java.math.BigInteger")
     _JVM_READY = True
-    logger.info("JVM ready for Hedera SDK")
+    logger.info("JVM ready via jnius (hedera-sdk-py)")
 
 
-def big_integers(values: list[int]) -> list:
+def big_integers(values: List[int]) -> List[Any]:
     ensure_java_vm()
-    from java.math import BigInteger
-
-    return [BigInteger(str(int(v))) for v in values]
+    assert _BigInteger is not None
+    return [_BigInteger(str(int(v))) for v in values]

@@ -1,34 +1,29 @@
 #!/usr/bin/env python3
+"""Verify hedera + jnius BigInteger path used by escrow release."""
 import os
-import traceback
+import sys
 
-os.environ["JAVA_HOME"] = "/usr/lib/jvm/java-21-openjdk-amd64"
-print("JAVA_HOME", os.environ["JAVA_HOME"])
+os.environ.setdefault("JAVA_HOME", "/usr/lib/jvm/java-21-openjdk-amd64")
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import jpype
+from orchestrator.app.hedera_jvm import big_integers, ensure_java_vm
 
-print("jpype", jpype.__version__)
-print("default jvm", jpype.getDefaultJVMPath())
-print("started?", jpype.isJVMStarted())
-try:
-    jpype.startJVM(jpype.getDefaultJVMPath(), convertStrings=True)
-    print("startJVM OK", jpype.isJVMStarted())
-except Exception as e:
-    print("startJVM FAIL", type(e), e)
-    traceback.print_exc()
+ensure_java_vm()
+vals = big_integers([100, 200, 300])
+print("BigInteger OK:", [str(v) for v in vals])
 
-import hedera  # noqa: F401
+from hedera import (
+    AccountId,
+    Client,
+    ContractFunctionParameters,
+    ContractId,
+)
 
-print("hedera imported", jpype.isJVMStarted())
-try:
-    import jpype.imports  # noqa: F401
-    from java.math import BigInteger
-
-    print("BigInteger", BigInteger("123"))
-except Exception as e:
-    print("BigInteger FAIL", type(e), e)
-    traceback.print_exc()
-
-from hedera import ContractFunctionParameters
-
-print([m for m in dir(ContractFunctionParameters) if "Uint" in m or "add" in m.lower()])
+params = ContractFunctionParameters()
+params.addBytes32(b"\x00" * 32)
+params.addAddressArray(
+    [f"0x{AccountId.fromString('0.0.9211480').toSolidityAddress()}"]
+)
+params.addUint256Array(vals)
+print("ContractFunctionParameters OK")
+print("ALL_OK")
