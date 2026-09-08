@@ -29,7 +29,7 @@ def _sequence_manager(model):
 def _update_with_timeout(sm, timeout_seconds: float) -> None:
     """sm.update(wait=True) can block indefinitely; bound each poll."""
     with ThreadPoolExecutor(max_workers=1) as pool:
-        future = pool.submit(sm.update, True)
+        future = pool.submit(sm.update, wait=True)
         try:
             future.result(timeout=timeout_seconds)
         except FuturesTimeout:
