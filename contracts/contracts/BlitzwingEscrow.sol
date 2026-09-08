@@ -40,8 +40,9 @@ contract BlitzwingEscrow {
         emit Deposited(requestId, msg.sender, msg.value);
     }
 
-    /// @notice Release funds to recipients after successful inference
-    /// @dev Takes from pool first, then from locked[requestId] if available
+    /// @notice Release funds to recipients after successful inference.
+    /// Uses live contract balance so native CryptoTransfers (x402) are covered
+    /// even when receive() was not invoked.
     function release(
         bytes32 requestId,
         address[] calldata recipients,
@@ -55,19 +56,26 @@ contract BlitzwingEscrow {
             sum += amounts[i];
         }
         
-        // Take from pool first
-        uint256 fromPool = sum <= poolBalance ? sum : poolBalance;
-        uint256 fromLocked = sum - fromPool;
-        
-        if (fromPool > 0) {
-            poolBalance -= fromPool;
+        uint256 bal = address(this).balance;
+        require(bal >= sum, "insufficient escrow");
+
+        // Prefer depleting per-request lock first, then pool, then remainder of balance
+        uint256 fromLocked = locked[requestId];
+        if (fromLocked > sum) {
+            fromLocked = sum;
         }
         if (fromLocked > 0) {
-            require(locked[requestId] >= fromLocked, "insufficient escrow");
             locked[requestId] -= fromLocked;
         }
+        uint256 remaining = sum - fromLocked;
+        if (remaining > 0) {
+            if (poolBalance >= remaining) {
+                poolBalance -= remaining;
+            } else {
+                poolBalance = 0;
+            }
+        }
         
-        // Transfer to all recipients
         for (uint256 i = 0; i < recipients.length; i++) {
             (bool ok, ) = recipients[i].call{value: amounts[i]}("");
             require(ok, "transfer failed");

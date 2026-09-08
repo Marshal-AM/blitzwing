@@ -76,10 +76,18 @@ class HederaEscrowService:
 
         params = ContractFunctionParameters()
         params.addBytes32(request_id_to_bytes32(request_id))
-        params.addAddressArray(
-            [AccountId.fromString(r).toSolidityAddress() for r in recipients]
-        )
-        params.addUint256Array(amounts)
+        # Solidity addresses from Hedera account IDs (long-zero / alias)
+        solidity_addrs = []
+        for r in recipients:
+            addr = AccountId.fromString(r).toSolidityAddress()
+            if not str(addr).startswith("0x"):
+                addr = f"0x{addr}"
+            solidity_addrs.append(addr)
+        params.addAddressArray(solidity_addrs)
+        # hedera-sdk-py (JPype) requires java.math.BigInteger for uint256 arrays
+        from java.math import BigInteger
+
+        params.addUint256Array([BigInteger(str(int(a))) for a in amounts])
 
         contract_id = ContractId.fromString(self.settings.escrow_contract_id)
         tx = (
