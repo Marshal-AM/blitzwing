@@ -30,9 +30,7 @@ ensure_python311() {
   echo "== creating Python 3.11 venv via uv =="
   uv python install 3.11
   uv venv "${HOME}/venv" --python 3.11
-  # shellcheck disable=SC1091
-  source "${HOME}/venv/bin/activate"
-  pip install -U pip wheel setuptools
+  "${HOME}/venv/bin/pip" install -U pip wheel setuptools
 }
 
 echo "== GCP contributor (public IP) =="
@@ -47,12 +45,11 @@ if ! "$PY" -c "import petals" 2>/dev/null; then
   echo "== installing Petals deps (first run) =="
   sudo apt-get update -y
   sudo DEBIAN_FRONTEND=noninteractive apt-get install -y build-essential git
-  # shellcheck disable=SC1091
-  source "${HOME}/venv/bin/activate"
-  pip install torch --index-url https://download.pytorch.org/whl/cpu
-  pip install -e "${ROOT}/petals"
-  pip install -r "${ROOT}/shard_manager/requirements.txt"
-  pip install -r "${ROOT}/orchestrator/requirements.txt"
+  PIP="${HOME}/venv/bin/pip"
+  "$PIP" install torch --index-url https://download.pytorch.org/whl/cpu
+  "$PIP" install -e "${ROOT}/petals"
+  "$PIP" install -r "${ROOT}/shard_manager/requirements.txt"
+  "$PIP" install -r "${ROOT}/orchestrator/requirements.txt"
 fi
 
 export PYTHONPATH="$ROOT"
