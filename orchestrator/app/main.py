@@ -252,8 +252,14 @@ async def hosts_ready(body: HostReadyRequest) -> dict:
         else:
             logger.warning("SKIP_READY_VERIFY=1 — accepting handoff without DHT check")
         host = await asyncio.to_thread(registry.mark_ready, body.host_id, body.peer_multiaddr)
-        await asyncio.to_thread(get_engine().reload)
-        logger.info("Petals client reloaded after handoff for %s", body.host_id)
+        try:
+            await asyncio.to_thread(get_engine().reload)
+            logger.info("Petals client reloaded after handoff for %s", body.host_id)
+        except Exception:  # noqa: BLE001
+            logger.exception(
+                "Engine reload after handoff failed for %s; inference will retry reload",
+                body.host_id,
+            )
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except RuntimeError as exc:
