@@ -198,21 +198,34 @@ def main() -> int:
             ok = False
             continue
         delta = after - before[acct]
-        status = "OK" if delta >= expected else "LOW"
-        if delta < expected:
+        # When mother is both operator and recipient, gas fees reduce the net delta.
+        is_operator = acct == os.getenv("MOTHER_ACCOUNT_ID", "")
+        min_ok = expected - (10_000_000 if is_operator else 0)  # allow ~0.1 HBAR gas
+        status = "OK" if delta >= min_ok else "LOW"
+        if delta < min_ok:
             ok = False
         print(
             f"  {h['host_id']:20} {acct} delta={delta:+d} tinybars "
-            f"(expected >={expected}) [{status}]"
+            f"(expected >={expected}"
+            f"{', allowing operator gas' if is_operator else ''}) [{status}]"
         )
 
     if escrow_bal is not None:
         try:
             after_escrow = mirror_balance_tinybars(settings_escrow)
+            escrow_delta = after_escrow - escrow_bal
             print(
                 f"\nescrow balance after: {after_escrow} tinybars "
-                f"(delta {after_escrow - escrow_bal:+d})"
+                f"(delta {escrow_delta:+d})"
             )
+            if escrow_delta > -planned_total:
+                print(
+                    f"FAIL: escrow did not drop by full payout "
+                    f"(delta {escrow_delta}, planned -{planned_total})"
+                )
+                ok = False
+            else:
+                print("escrow deplete OK")
         except urllib.error.URLError:
             pass
 
