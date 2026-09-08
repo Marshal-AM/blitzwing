@@ -14,21 +14,26 @@ mkdir -p "$LOG_DIR"
 PUBLIC_IP="${PUBLIC_IP:-$(curl -s --max-time 10 ifconfig.me)}"
 HOST_IP="$(hostname -I | awk '{print $1}')"
 
-# Petals/hivemind need Python 3.11 (same as mother VM). Avoid 3.13 on fresh Debian images.
-PYTHON_BIN="${PYTHON_BIN:-}"
-for candidate in python3.11 python3.12; do
-  if command -v "$candidate" >/dev/null 2>&1; then
-    PYTHON_BIN="$candidate"
-    break
-  fi
-done
-if [[ -z "$PYTHON_BIN" ]]; then
-  echo "== installing Python 3.11 =="
-  sudo apt-get update -y
-  sudo DEBIAN_FRONTEND=noninteractive apt-get install -y python3.11 python3.11-venv python3.11-dev build-essential git
-  PYTHON_BIN=python3.11
-fi
+# Petals/hivemind need Python 3.11 (same as mother VM). Debian Trixie ships 3.13 only — use uv.
 PY="${HOME}/venv/bin/python"
+ensure_python311() {
+  if [[ -x "$PY" ]]; then
+    ver="$("$PY" -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')"
+    [[ "$ver" == "3.11" ]] && return 0
+    rm -rf "${HOME}/venv"
+  fi
+  if ! command -v uv >/dev/null 2>&1; then
+    echo "== installing uv =="
+    curl -LsSf https://astral.sh/uv/install.sh | sh
+    export PATH="${HOME}/.local/bin:${PATH}"
+  fi
+  echo "== creating Python 3.11 venv via uv =="
+  uv python install 3.11
+  uv venv "${HOME}/venv" --python 3.11
+  # shellcheck disable=SC1091
+  source "${HOME}/venv/bin/activate"
+  pip install -U pip wheel setuptools
+}
 
 echo "== GCP contributor (public IP) =="
 echo "mother=$MOTHER_URL public_ip=$PUBLIC_IP layers=$LAYERS petals_port=$PETALS_PORT"
@@ -37,13 +42,13 @@ cd "$ROOT"
 git fetch origin
 git reset --hard origin/main
 
-if [[ ! -x "$PY" ]]; then
-  echo "== installing Python venv + Petals (first run) with $PYTHON_BIN =="
-  rm -rf "${HOME}/venv"
-  "$PYTHON_BIN" -m venv "${HOME}/venv"
+ensure_python311
+if ! "$PY" -c "import petals" 2>/dev/null; then
+  echo "== installing Petals deps (first run) =="
+  sudo apt-get update -y
+  sudo DEBIAN_FRONTEND=noninteractive apt-get install -y build-essential git
   # shellcheck disable=SC1091
   source "${HOME}/venv/bin/activate"
-  pip install -U pip wheel setuptools
   pip install torch --index-url https://download.pytorch.org/whl/cpu
   pip install -e "${ROOT}/petals"
   pip install -r "${ROOT}/shard_manager/requirements.txt"
