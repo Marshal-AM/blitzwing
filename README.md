@@ -43,10 +43,20 @@ npm i -g blitzwing
 blitzwing
 ```
 
+## Consumers
+
+| Mode | Client |
+|------|--------|
+| Free / local | `examples/chat_client.py` |
+| Paid (x402 + Hedera) | `examples/x402_chat_client` — see [docs/x402-hedera.md](docs/x402-hedera.md) |
+
+Paid chat requires local `@x500/facilitator` on `:8791` and `packages/x402-gateway` on `:8000`.
+
 ## Docs
 
 - [GCP setup](docs/gcp-setup.md)
 - [Integrations](docs/integrations.md)
+- [x402 + Hedera core loop](docs/x402-hedera.md)
 - [Layer rebalance](docs/rebalance.md)
 
 ## License

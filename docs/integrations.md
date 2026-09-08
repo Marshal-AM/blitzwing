@@ -19,6 +19,14 @@ Alright — let's go maximalist. I pulled the actual ENSv2 docs and Hedera's ser
 
 That's genuinely every documented ENSv2 primitive doing real work — nothing there is decorative.
 
+## Hedera x402 core loop (implemented)
+
+See [x402-hedera.md](x402-hedera.md) for the working spine:
+
+`x402 pay mother (@x402/hedera Exact) → inference → HBAR redistribute by layers → HCS audit`
+
+Contributor Hedera wallets are collected in the CLI join wizard (`hedera_account_id`). Price is `TOTAL_LAYERS * COST_PER_LAYER_TINYBARS`.
+
 ## Hedera — every service, given a job
 
 Hedera's own track bonus list basically **is** this checklist, so mapping these isn't a stretch — it's what they're scoring for.
@@ -36,7 +44,7 @@ Hedera's own track bonus list basically **is** this checklist, so mapping these 
 | **JSON-RPC Relay** | Lets your escrow contract be deployed/tested with standard Ethereum tooling (Hardhat/Foundry/ethers.js) instead of Hedera-specific tooling — faster to build |
 | **File Service** | Store the immutable "shard manifest" for a completed request (which hosts, which layers, in what order) as a Hedera File — a permanent, chain-native record separate from the HCS log |
 | **Hedera Agent Kit** | Wire your orchestrator's payment/query logic through this so it's a proper "agent" in Hedera's own framework, not a bespoke script calling the SDK directly |
-| **x402 via Blocky402 facilitator** | The actual payment-gate on your inference endpoint — this is the track's hard qualification requirement, not optional |
+| **x402 via `@x402/hedera` + official facilitator** | Payment gate on inference (`packages/x402-gateway`) — track qualification requirement |
 
 ## The one thing to be honest about
 

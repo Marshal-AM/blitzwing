@@ -2,6 +2,7 @@
 Consumer example: call the Blitzwing OpenAI-compatible chat completions API.
 
 Uses plain HTTP (stdlib) — no OpenAI SDK and no API key.
+For paid (x402 / Hedera) calls, use examples/x402_chat_client instead.
 
 Prereqs (operator side already running):
   - VM1 Petals + orchestrator on :8000
@@ -12,6 +13,9 @@ Usage:
   python examples/chat_client.py
 
   python examples/chat_client.py --base-url http://34.x.x.x:8000/v1 -q "What is Petals?"
+
+Paid inference (x402-hedera):
+  cd examples/x402_chat_client && npm run build:deps && npm install && npm start
 """
 
 from __future__ import annotations

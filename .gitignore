@@ -2,6 +2,7 @@
 .env
 .env.*
 !.env.example
+!**/.env.example
 orchestrator/.env
 
 # Python
@@ -16,6 +17,8 @@ venv/
 node_modules/
 packages/cli/node_modules/
 packages/cli/.npmrc
+packages/x402-gateway/node_modules/
+examples/x402_chat_client/node_modules/
 *.tgz
 
 # Runtime / logs
