@@ -154,7 +154,43 @@ class ContributorInference:
             f"DHT still missing blocks after {timeout_seconds}s: {self._missing_blocks()}"
         )
 
-    def _ensure_loaded(self) -> None:
+    def _peers_from_manifest(self, manifest: dict) -> List[str]:
+        """Build initial_peers from mother's authoritative swarm manifest."""
+        peers: List[str] = []
+        local_blocks = self.local_block_indices
+        for host in manifest.get("hosts", []):
+            maddr = host.get("peer_multiaddr")
+            blocks = host.get("block_indices")
+            if not maddr:
+                continue
+            # Skip our own range — local peer is added separately.
+            if local_blocks and blocks == local_blocks:
+                continue
+            if maddr not in peers:
+                peers.append(maddr)
+        return peers
+
+    def _apply_swarm_manifest(self, manifest: Optional[dict]) -> None:
+        if not manifest:
+            return
+        manifest_peers = self._peers_from_manifest(manifest)
+        if not manifest_peers:
+            return
+        merged = list(manifest_peers)
+        local_peer = next((p for p in self.initial_peers if "/127.0.0.1/" in p), None)
+        if local_peer and local_peer not in merged:
+            merged = [local_peer] + merged
+        if merged != self.initial_peers:
+            logger.info("Applying swarm manifest peers: %s", merged)
+            self.initial_peers = merged
+            with self._lock:
+                if self._model is not None:
+                    self._model = None
+                    self._tokenizer = None
+                    self._ready.clear()
+
+    def _ensure_loaded(self, swarm_manifest: Optional[dict] = None) -> None:
+        self._apply_swarm_manifest(swarm_manifest)
         with self._lock:
             if self._model is not None:
                 if not self._ready.is_set():
@@ -206,8 +242,9 @@ class ContributorInference:
         max_tokens: int = 64,
         temperature: float = 0.7,
         top_p: float = 0.9,
+        swarm_manifest: Optional[dict] = None,
     ) -> InferenceResult:
-        self._ensure_loaded()
+        self._ensure_loaded(swarm_manifest=swarm_manifest)
         assert self._tokenizer is not None and self._model is not None
 
         # One quick DHT refresh if anything went missing since warm-up.

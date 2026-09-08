@@ -44,6 +44,7 @@ class ChatInferenceRequest(BaseModel):
     max_tokens: int = 64
     temperature: float = 0.7
     top_p: float = 0.9
+    swarm_manifest: Optional[dict] = None
 
 
 class ChatInferenceResponse(BaseModel):
@@ -214,7 +215,7 @@ app = FastAPI(title="Blitzwing Shard Manager", version="0.1.0")
 
 @app.on_event("startup")
 def on_startup() -> None:
-    maybe_start_from_env()
+    maybe_start_from_env(manager)
     if manager._auto_start:
         try:
             manager.start(bootstrap=manager.new_swarm)
@@ -295,12 +296,14 @@ def chat_completions(body: ChatInferenceRequest) -> ChatInferenceResponse:
             st.model,
             list(st.initial_peers),
             local_port=st.port,
+            local_block_indices=st.block_indices,
         )
         result = inf.generate(
             body.messages,
             max_tokens=body.max_tokens,
             temperature=body.temperature,
             top_p=body.top_p,
+            swarm_manifest=body.swarm_manifest,
         )
     except Exception as exc:  # noqa: BLE001
         logger.exception("Contributor HTTP inference failed")

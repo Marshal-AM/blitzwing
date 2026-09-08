@@ -251,16 +251,29 @@ class PetalsEngine:
         top_p: Optional[float] = 0.9,
         stop: Optional[Iterable[str]] = None,
     ) -> GenerationResult:
-        from orchestrator.app.http_inference import (
-            generate_via_contributor_http,
-            pick_http_contributor,
+        from orchestrator.app.http_inference import generate_via_contributor_http
+        from orchestrator.app.registry import get_registry
+        from orchestrator.app.swarm_map import (
+            pick_http_inference_host,
+            refresh_live_status,
+            sync_peers_to_engine,
+            validate_manifest,
         )
 
-        contributor = pick_http_contributor()
+        registry = get_registry()
+        manifest = refresh_live_status(registry)
+        ok, detail = validate_manifest(manifest)
+        if not ok:
+            logger.warning("Swarm manifest incomplete before generate: %s", detail)
+
+        sync_peers_to_engine(registry, self)
+
+        contributor = pick_http_inference_host(manifest)
         if contributor:
             try:
                 return generate_via_contributor_http(
                     contributor,
+                    manifest,
                     messages,
                     max_tokens=max_tokens,
                     temperature=temperature,

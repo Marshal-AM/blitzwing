@@ -124,6 +124,18 @@ class InternalPayoutRequest(BaseModel):
 
 class HostHeartbeatRequest(BaseModel):
     host_id: str
+    block_indices: Optional[str] = None
+    petals_running: Optional[bool] = None
+    peer_multiaddr: Optional[str] = None
+    shard_manager_url: Optional[str] = None
+
+
+class SwarmManifestResponse(BaseModel):
+    model: str
+    total_layers: int
+    complete: bool
+    detail: Optional[str] = None
+    hosts: List[HostPublic]
 
 
 class HostLeaveRequest(BaseModel):

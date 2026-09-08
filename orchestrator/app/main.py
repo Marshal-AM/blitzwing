@@ -37,7 +37,13 @@ from orchestrator.app.schemas import (
     ModelCard,
     ModelList,
     StreamChoice,
+    SwarmManifestResponse,
     Usage,
+)
+from orchestrator.app.swarm_map import (
+    apply_heartbeat_manifest,
+    refresh_live_status,
+    validate_manifest,
 )
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -211,6 +217,7 @@ async def list_hosts() -> HostListResponse:
             public_ip=h.public_ip,
             last_heartbeat=h.last_heartbeat,
             hedera_account_id=h.hedera_account_id,
+            petals_running=h.petals_running,
         )
         for h in registry.list_hosts()
     ]
@@ -219,6 +226,37 @@ async def list_hosts() -> HostListResponse:
         total_layers=settings.total_layers,
         max_layers_available=registry.max_carveable(),
         cost_per_layer_tinybars=settings.cost_per_layer_tinybars or None,
+        hosts=hosts,
+    )
+
+
+@app.get("/v1/swarm/manifest", response_model=SwarmManifestResponse)
+async def swarm_manifest() -> SwarmManifestResponse:
+    """Authoritative layer map — mother registry reconciled with live shard status."""
+    settings = get_settings()
+    registry = get_registry()
+    manifest = await asyncio.to_thread(refresh_live_status, registry)
+    ok, detail = validate_manifest(manifest)
+    hosts = [
+        HostPublic(
+            host_id=s.host_id,
+            role=s.role,
+            model=manifest.model,
+            block_indices=s.block_indices,
+            layers_hosted=s.end - s.start,
+            status="online",
+            public_ip=None,
+            last_heartbeat=0,
+            hedera_account_id=None,
+            petals_running=s.petals_running,
+        )
+        for s in manifest.spans
+    ]
+    return SwarmManifestResponse(
+        model=settings.model_name,
+        total_layers=settings.total_layers,
+        complete=ok,
+        detail=detail if not ok else None,
         hosts=hosts,
     )
 
@@ -402,10 +440,24 @@ async def internal_payout(
 async def hosts_heartbeat(body: HostHeartbeatRequest) -> dict:
     registry = get_registry()
     try:
-        host = registry.heartbeat(body.host_id)
+        host = await asyncio.to_thread(
+            apply_heartbeat_manifest,
+            registry,
+            body.host_id,
+            block_indices=body.block_indices,
+            petals_running=body.petals_running,
+            peer_multiaddr=body.peer_multiaddr,
+            shard_manager_url=body.shard_manager_url,
+        )
+        registry.persist()
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-    return {"host_id": host.host_id, "last_heartbeat": host.last_heartbeat}
+    return {
+        "host_id": host.host_id,
+        "last_heartbeat": host.last_heartbeat,
+        "block_indices": host.block_indices,
+        "accepted": True,
+    }
 
 
 @app.post("/v1/hosts/leave")

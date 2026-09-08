@@ -80,6 +80,8 @@ class HostRecord:
     donor_host_id: Optional[str] = None
     donor_shrink_to: Optional[str] = None
     hedera_account_id: Optional[str] = None
+    petals_running: Optional[bool] = None
+    petals_running: Optional[bool] = None
 
 
 class SwarmRegistry:

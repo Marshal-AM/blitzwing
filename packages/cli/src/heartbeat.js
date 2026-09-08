@@ -31,7 +31,10 @@ async function beat() {
         "Content-Type": "application/json",
         "ngrok-skip-browser-warning": "true",
       },
-      body: JSON.stringify({ host_id: hostId }),
+      body: JSON.stringify({
+        host_id: hostId,
+        block_indices: process.env.BLOCK_INDICES || undefined,
+      }),
     });
   } catch {}
 }
