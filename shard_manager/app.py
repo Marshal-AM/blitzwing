@@ -276,7 +276,11 @@ def chat_completions(body: ChatInferenceRequest) -> ChatInferenceResponse:
     if not st.running:
         raise HTTPException(status_code=503, detail="Petals server not running")
     try:
-        inf = get_contributor_inference(st.model, list(st.initial_peers))
+        inf = get_contributor_inference(
+            st.model,
+            list(st.initial_peers),
+            local_port=st.port,
+        )
         result = inf.generate(
             body.messages,
             max_tokens=body.max_tokens,

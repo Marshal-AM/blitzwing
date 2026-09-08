@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import logging
+import os
+import re
 import threading
 from dataclasses import dataclass
+from pathlib import Path
 from typing import List, Optional, Sequence
 
 import torch
@@ -21,14 +24,52 @@ class InferenceResult:
 
 
 class ContributorInference:
-    """Lazy Petals client — connects outbound to mother, uses local server for tail blocks."""
+    """Lazy Petals client — mother via libp2p + local server for tail blocks."""
 
-    def __init__(self, model_name: str, initial_peers: List[str]) -> None:
+    def __init__(
+        self,
+        model_name: str,
+        initial_peers: List[str],
+        *,
+        local_port: int = 31338,
+        log_path: Optional[str] = None,
+    ) -> None:
         self.model_name = model_name
-        self.initial_peers = [p for p in initial_peers if p]
+        self.initial_peers = self._build_peers(initial_peers, local_port, log_path)
         self._tokenizer = None
         self._model = None
         self._lock = threading.Lock()
+
+    @staticmethod
+    def _local_peer_from_log(log_path: str, port: int) -> Optional[str]:
+        try:
+            text = Path(log_path).read_text(encoding="utf-8", errors="ignore")
+        except OSError:
+            return None
+        match = re.search(
+            r"Running a server on \['[^']+/p2p/([A-Za-z0-9]+)'\]",
+            text,
+        )
+        if not match:
+            return None
+        return f"/ip4/127.0.0.1/tcp/{port}/p2p/{match.group(1)}"
+
+    def _build_peers(
+        self,
+        initial_peers: List[str],
+        local_port: int,
+        log_path: Optional[str],
+    ) -> List[str]:
+        peers = [p for p in initial_peers if p]
+        log = log_path or os.getenv(
+            "CONTRIB_SHARD_LOG",
+            str(Path.home() / ".blitzwing" / "contrib_shard.out"),
+        )
+        local_peer = self._local_peer_from_log(log, local_port)
+        if local_peer and local_peer not in peers:
+            peers.append(local_peer)
+            logger.info("Added local Petals peer for tail blocks: %s", local_peer)
+        return peers
 
     def _ensure_loaded(self) -> None:
         with self._lock:
@@ -113,9 +154,20 @@ _client: Optional[ContributorInference] = None
 _client_lock = threading.Lock()
 
 
-def get_contributor_inference(model_name: str, initial_peers: List[str]) -> ContributorInference:
+def get_contributor_inference(
+    model_name: str,
+    initial_peers: List[str],
+    *,
+    local_port: int = 31338,
+    log_path: Optional[str] = None,
+) -> ContributorInference:
     global _client
     with _client_lock:
         if _client is None:
-            _client = ContributorInference(model_name, initial_peers)
+            _client = ContributorInference(
+                model_name,
+                initial_peers,
+                local_port=local_port,
+                log_path=log_path,
+            )
         return _client

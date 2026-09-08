@@ -44,7 +44,7 @@ class Settings:
     heartbeat_ttl_seconds: int = 180
     ready_verify_timeout_seconds: int = 120
     skip_ready_verify: bool = False
-    inference_timeout_seconds: int = 90
+    inference_timeout_seconds: int = 180
     petals_use_auto_relay: bool = True
     # x402 / Hedera payouts
     x402_enabled: bool = False
