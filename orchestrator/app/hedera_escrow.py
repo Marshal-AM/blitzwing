@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
+import urllib.error
+import urllib.request
 from typing import Any, Dict, List, Optional
 
 from orchestrator.app.config import Settings
@@ -15,6 +18,43 @@ logger = logging.getLogger(__name__)
 
 def request_id_to_bytes32(request_id: str) -> bytes:
     return hashlib.sha256(request_id.encode("utf-8")).digest()
+
+
+def resolve_evm_address(account_id: str, *, network: str = "hedera-testnet") -> str:
+    """
+    Resolve the EVM address Hedera contracts should send to.
+
+    ECDSA accounts must use their alias address (mirror ``evm_address``), not the
+    long-zero encoding from AccountId.toSolidityAddress() — contract value
+    transfers to long-zero often revert for those accounts.
+    """
+    host = (
+        "mainnet-public.mirrornode.hedera.com"
+        if "mainnet" in network.lower()
+        else "testnet.mirrornode.hedera.com"
+    )
+    url = f"https://{host}/api/v1/accounts/{account_id}"
+    try:
+        with urllib.request.urlopen(url, timeout=20) as resp:
+            data = json.loads(resp.read().decode())
+        evm = (data.get("evm_address") or "").strip()
+        if evm:
+            if not evm.startswith("0x"):
+                evm = f"0x{evm}"
+            return evm
+    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, KeyError) as exc:
+        logger.warning(
+            "Mirror EVM lookup failed for %s: %s — falling back to long-zero",
+            account_id,
+            exc,
+        )
+
+    from hedera import AccountId
+
+    addr = AccountId.fromString(account_id).toSolidityAddress()
+    if not str(addr).startswith("0x"):
+        addr = f"0x{addr}"
+    return str(addr)
 
 
 class HederaEscrowService:
@@ -78,13 +118,12 @@ class HederaEscrowService:
 
         params = ContractFunctionParameters()
         params.addBytes32(request_id_to_bytes32(request_id))
-        # Solidity addresses from Hedera account IDs (long-zero / alias)
-        solidity_addrs = []
-        for r in recipients:
-            addr = AccountId.fromString(r).toSolidityAddress()
-            if not str(addr).startswith("0x"):
-                addr = f"0x{addr}"
-            solidity_addrs.append(addr)
+        solidity_addrs = [resolve_evm_address(r, network=network) for r in recipients]
+        logger.info(
+            "Escrow release recipients=%s amounts=%s",
+            list(zip(recipients, solidity_addrs)),
+            amounts,
+        )
         params.addAddressArray(solidity_addrs)
         params.addUint256Array(big_integers(amounts))
 
@@ -98,9 +137,14 @@ class HederaEscrowService:
         )
         resp = tx.execute(client)
         receipt = resp.getReceipt(client)
-        # Use toString() to get proper transaction ID format, not Python repr
-        tx_id = resp.transactionId.toString() if hasattr(resp.transactionId, 'toString') else str(resp.transactionId)
+        tx_id = (
+            resp.transactionId.toString()
+            if hasattr(resp.transactionId, "toString")
+            else str(resp.transactionId)
+        )
         logger.info("Escrow release tx=%s status=%s", tx_id, receipt.status)
+        for row, addr in zip(host_rows, solidity_addrs):
+            row["evm_address"] = addr
         return {
             "request_id": request_id,
             "payout_tx_id": tx_id,
@@ -115,8 +159,10 @@ _escrow: Optional[HederaEscrowService] = None
 
 def get_escrow_service(settings: Optional[Settings] = None) -> HederaEscrowService:
     global _escrow
-    if _escrow is None:
-        from orchestrator.app.config import get_settings
+    # Always rebuild when settings change (e.g. escrow redeploy updates .env).
+    from orchestrator.app.config import get_settings
 
-        _escrow = HederaEscrowService(settings or get_settings())
+    current = settings or get_settings()
+    if _escrow is None or _escrow.settings.escrow_contract_id != current.escrow_contract_id:
+        _escrow = HederaEscrowService(current)
     return _escrow
