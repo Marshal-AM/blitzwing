@@ -23,6 +23,18 @@ from typing import Any, Dict, List, Optional
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
+try:
+    from dotenv import load_dotenv
+
+    load_dotenv(ROOT / ".env", override=True)
+except ImportError:
+    pass
+
+# Ensure Settings picks up the latest .env (escrow redeploys change IDs).
+from orchestrator.app.config import get_settings
+
+get_settings.cache_clear()
+
 ORCH = (os.getenv("ORCHESTRATOR_INTERNAL_URL") or "http://127.0.0.1:8002").rstrip("/")
 
 
@@ -94,8 +106,9 @@ def payout_via_local(request_id: str, hosts_json: List[dict]) -> dict:
 
 
 def main() -> int:
-    settings_escrow = os.getenv("ESCROW_CONTRACT_ID", "0.0.10421334")
-    cpl = int(os.getenv("COST_PER_LAYER_TINYBARS", "10000000"))
+    settings = get_settings()
+    settings_escrow = settings.escrow_contract_id or os.getenv("ESCROW_CONTRACT_ID", "")
+    cpl = int(settings.cost_per_layer_tinybars)
 
     print(f"orchestrator={ORCH}")
     print(f"escrow={settings_escrow} cost_per_layer={cpl} tinybars")
