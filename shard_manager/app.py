@@ -127,7 +127,7 @@ class ShardManager:
             cmd.extend(["--public_ip", self.public_ip])
         if bootstrap and self.new_swarm:
             cmd.append("--new_swarm")
-        elif self.initial_peers:
+        elif self.initial_peers and not os.getenv("BLITZWING_HTTP_ONLY"):
             cmd.append("--initial_peers")
             cmd.extend(self.initial_peers)
         if not self.use_auto_relay:

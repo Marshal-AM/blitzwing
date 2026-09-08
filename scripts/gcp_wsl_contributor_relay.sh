@@ -111,13 +111,17 @@ SAVED_ANNOUNCE=""
 export MODEL_NAME=TinyLlama/TinyLlama-1.1B-Chat-v1.0
 export PUBLIC_IP="$HOST_IP"
 export BLOCK_INDICES="$BLOCKS"
-export INITIAL_PEERS="$PEERS"
+# HTTP-only mode: local Petals server does NOT bootstrap to mother via libp2p.
+# Cross-node inference uses HTTP chain (mother prefix + contributor tail).
+export NEW_SWARM=1
+export INITIAL_PEERS=""
 export PETALS_PORT
 export IDENTITY_PATH="${LOG_DIR}/petals-identity-contributor"
 export PETALS_PYTHON="${HOME}/.blitzwing-venv/bin/python"
 export SHARD_AUTO_START=1
-export PETALS_USE_AUTO_RELAY="$USE_AUTO_RELAY"
+export PETALS_USE_AUTO_RELAY=0
 export PETALS_SKIP_REACHABILITY_CHECK=1
+export BLITZWING_HTTP_ONLY=1
 export PETALS_DEVICE=cpu
 export PETALS_QUANT_TYPE=none
 export BLITZWING_HOST_ID="$HOST_ID"
