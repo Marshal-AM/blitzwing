@@ -66,7 +66,7 @@ class PrefixResponse(BaseModel):
 
 class ShardManager:
     def __init__(self) -> None:
-        self.model = os.getenv("MODEL_NAME", "TinyLlama/TinyLlama-1.1B-Chat-v1.0")
+        self.model = os.getenv("MODEL_NAME", "bigscience/bloom-560m")
         self.public_ip = os.getenv("PUBLIC_IP")
         self.port = int(os.getenv("PETALS_PORT", "31337"))
         self.identity_path = os.getenv("IDENTITY_PATH", str(Path.home() / "petals-identity"))

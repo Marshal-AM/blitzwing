@@ -37,7 +37,8 @@ fi
 
 # --- shard manager (if not already) ---
 export PYTHONPATH="$ROOT"
-export BLOCK_INDICES="0:${TOTAL_LAYERS:-22}"
+export MODEL_NAME="${MODEL_NAME:-bigscience/bloom-560m}"
+export BLOCK_INDICES="0:${TOTAL_LAYERS:-24}"
 export NEW_SWARM="${NEW_SWARM:-0}"
 export IDENTITY_PATH="${HOME}/.blitzwing/petals-identity-mother"
 export PETALS_PORT=31337

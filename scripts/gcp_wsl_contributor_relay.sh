@@ -98,7 +98,8 @@ print(t["public_url"].rstrip("/"))
 fi
 
 echo "== join $LAYERS layers =="
-ASSIGNMENT="$(api POST "${MOTHER_URL}/v1/hosts/join" "{\"model\":\"TinyLlama/TinyLlama-1.1B-Chat-v1.0\",\"layers\":${LAYERS},\"public_ip\":\"${HOST_IP}\",\"shard_manager_url\":\"${SHARD_PUBLIC_URL}\",\"hedera_account_id\":\"${HEDERA_ACCOUNT_ID}\"}")"
+MODEL="${MODEL_NAME:-bigscience/bloom-560m}"
+ASSIGNMENT="$(api POST "${MOTHER_URL}/v1/hosts/join" "{\"model\":\"${MODEL}\",\"layers\":${LAYERS},\"public_ip\":\"${HOST_IP}\",\"shard_manager_url\":\"${SHARD_PUBLIC_URL}\",\"hedera_account_id\":\"${HEDERA_ACCOUNT_ID}\"}")"
 echo "$ASSIGNMENT" | python3 -m json.tool
 HOST_ID="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["host_id"])' <<<"$ASSIGNMENT")"
 BLOCKS="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["block_indices"])' <<<"$ASSIGNMENT")"
@@ -108,7 +109,7 @@ PEERS="$(python3 -c 'import json,sys; print(",".join(json.load(sys.stdin).get("i
 USE_AUTO_RELAY=1
 SAVED_ANNOUNCE=""
 
-export MODEL_NAME=TinyLlama/TinyLlama-1.1B-Chat-v1.0
+export MODEL_NAME="${MODEL_NAME:-bigscience/bloom-560m}"
 export PUBLIC_IP="$HOST_IP"
 export BLOCK_INDICES="$BLOCKS"
 # HTTP-only mode: local Petals server does NOT bootstrap to mother via libp2p.

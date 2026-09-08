@@ -18,7 +18,7 @@ pkill -f 'uvicorn shard_manager.app' || true
 pkill -f 'petals.cli.run_server' || true
 sleep 2
 
-export MODEL_NAME=TinyLlama/TinyLlama-1.1B-Chat-v1.0
+export MODEL_NAME="${MODEL_NAME:-bigscience/bloom-560m}"
 export PUBLIC_IP
 export BLOCK_INDICES="$BLOCKS"
 export NEW_SWARM=1

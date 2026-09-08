@@ -31,7 +31,7 @@ def _truthy(raw: Optional[str], default: bool = False) -> bool:
 
 @dataclass(frozen=True)
 class Settings:
-    model_name: str = "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
+    model_name: str = "bigscience/bloom-560m"
     initial_peers: List[str] = field(default_factory=list)
     announce_peers: List[str] = field(default_factory=list)
     api_host: str = "0.0.0.0"

@@ -35,7 +35,7 @@ const baseURL = (
   "http://127.0.0.1:8000"
 ).replace(/\/v1\/?$/, "");
 const endpointPath = process.env.ENDPOINT_PATH || "/v1/chat/completions";
-const model = process.env.BLITZWING_MODEL || "TinyLlama/TinyLlama-1.1B-Chat-v1.0";
+const model = process.env.BLITZWING_MODEL || "bigscience/bloom-560m";
 const query =
   process.env.BLITZWING_QUERY || "Say hello in one short friendly sentence.";
 
