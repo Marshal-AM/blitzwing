@@ -129,6 +129,7 @@ export BLITZWING_HOST_ID="$HOST_ID"
 export BLITZWING_MOTHER_URL="$MOTHER_URL"
 export HEARTBEAT_INTERVAL_SECONDS=20
 export CONTRIB_SHARD_LOG="${LOG_DIR}/contrib_shard.out"
+export BLITZWING_SHARD_MANAGER_URL="${SHARD_PUBLIC_URL}"
 
 : > "${LOG_DIR}/contrib_shard.out"
 nohup python -m uvicorn shard_manager.app:app --host 0.0.0.0 --port "$SHARD_PORT" \
