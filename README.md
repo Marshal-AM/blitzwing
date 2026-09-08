@@ -50,7 +50,7 @@ blitzwing
 | Free / local | `examples/chat_client.py` |
 | Paid (x402 + Hedera) | `examples/x402_chat_client` — see [docs/x402-hedera.md](docs/x402-hedera.md) |
 
-Paid chat requires local `@x500/facilitator` on `:8791` and `packages/x402-gateway` on `:8000`.
+Paid chat requires `packages/x402-facilitator` on `:8791` and `packages/x402-gateway` on `:8000`.
 
 ## Docs
 

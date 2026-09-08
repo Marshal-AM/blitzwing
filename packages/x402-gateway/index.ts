@@ -1,7 +1,7 @@
 /**
  * Public x402 payment gateway for Blitzwing.
  *
- * Official Hedera x402 stack (same as x500 example/server):
+ * Official Hedera x402 stack:
  *   @x402/core  — x402ResourceServer + x402HTTPResourceServer
  *   @x402/hedera — ExactHederaScheme (exact / HBAR)
  *
@@ -24,7 +24,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 config({ path: path.resolve(__dirname, "../../.env") });
 config();
 
-/** Local x500 facilitator (@x500/facilitator on FACILITATOR_PORT). */
+/** Local Blitzwing facilitator (packages/x402-facilitator). */
 const DEFAULT_FACILITATOR_URL = "http://127.0.0.1:8791";
 
 const facilitatorUrl = (

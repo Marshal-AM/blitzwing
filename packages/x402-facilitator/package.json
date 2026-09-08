@@ -1,0 +1,23 @@
+{
+  "name": "@blitzwing/x402-facilitator",
+  "private": true,
+  "type": "module",
+  "version": "0.1.0",
+  "description": "Hedera x402 Exact HBAR facilitator (verify / settle / supported)",
+  "scripts": {
+    "dev": "tsx watch index.ts",
+    "start": "tsx index.ts"
+  },
+  "dependencies": {
+    "@hono/node-server": "^1.13.7",
+    "@x402/core": "^2.18.0",
+    "@x402/hedera": "^2.18.0",
+    "dotenv": "^16.5.0",
+    "hono": "^4.6.14"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.4",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3"
+  }
+}

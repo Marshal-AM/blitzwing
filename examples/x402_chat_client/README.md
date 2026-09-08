@@ -5,7 +5,7 @@ Pays for `POST /v1/chat/completions` using the official Hedera x402 SDK:
 - `@x402/core` (`x402Client`, `x402HTTPClient`)
 - `@x402/hedera` (`ExactHederaScheme`, `createClientHederaSigner`)
 
-Same payment loop as `x500-sdk` `payOnce`: first request → 402 → sign payload → retry.
+Same payment loop as x402 HTTP Exact: first request → 402 → sign payload → retry.
 
 ## Setup
 

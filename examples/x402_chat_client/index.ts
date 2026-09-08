@@ -1,6 +1,6 @@
 /**
  * Paying Blitzwing chat client using the official Hedera x402 SDK
- * (@x402/core + @x402/hedera) — same stack as x500-sdk payOnce.
+ * (@x402/core + @x402/hedera).
  *
  * Repo-root .env:
  *   HEDERA_PRIVATE_KEY, HEDERA_ACCOUNT_ID   (consumer)

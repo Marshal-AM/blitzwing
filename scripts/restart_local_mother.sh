@@ -86,11 +86,21 @@ nohup python -m uvicorn orchestrator.app.main:app --host 0.0.0.0 --port "$ORCH_P
 for i in $(seq 1 30); do curl -sf "http://127.0.0.1:${ORCH_PORT}/health" >/dev/null && break; sleep 1; done
 
 if [[ "$ORCH_PORT" == "8002" ]]; then
-  echo "== x402 gateway :8000 (@x402/core + @x402/hedera) =="
+  echo "== x402 facilitator :8791 =="
   if ! command -v npm >/dev/null 2>&1; then
-    echo "ERROR: npm required for packages/x402-gateway when X402_ENABLED=1" >&2
+    echo "ERROR: npm required for x402 packages when X402_ENABLED=1" >&2
     exit 1
   fi
+  (
+    cd "$ROOT/packages/x402-facilitator"
+    if [[ ! -d node_modules/@x402/core ]]; then
+      npm install
+    fi
+    nohup npx tsx index.ts > "$HOME/.blitzwing/x402-facilitator.out" 2>&1 &
+  )
+  for i in $(seq 1 30); do curl -sf http://127.0.0.1:8791/health >/dev/null && break; sleep 1; done
+
+  echo "== x402 gateway :8000 (@x402/core + @x402/hedera) =="
   (
     cd "$ROOT/packages/x402-gateway"
     if [[ ! -d node_modules/@x402/core ]]; then
