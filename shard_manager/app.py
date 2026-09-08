@@ -267,6 +267,22 @@ def on_startup() -> None:
         except Exception:  # noqa: BLE001
             logger.exception("Failed to auto-start Petals server")
 
+    # Pre-warm LocalShardRunner in background so /v1/chain/prefix doesn't block the server.
+    def _prewarm() -> None:
+        import time
+
+        for _ in range(120):
+            if manager.status().running:
+                break
+            time.sleep(2)
+        try:
+            _get_local_runner()
+            logger.info("LocalShardRunner pre-warmed for HTTP chain prefix")
+        except Exception:  # noqa: BLE001
+            logger.exception("LocalShardRunner pre-warm failed")
+
+    threading.Thread(target=_prewarm, name="prefix-prewarm", daemon=True).start()
+
 
 @app.on_event("shutdown")
 def on_shutdown() -> None:
