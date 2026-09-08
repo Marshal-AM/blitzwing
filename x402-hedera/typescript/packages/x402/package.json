@@ -1,0 +1,259 @@
+{
+  "name": "x402",
+  "version": "0.6.6",
+  "main": "./dist/cjs/index.js",
+  "module": "./dist/esm/index.js",
+  "types": "./dist/cjs/index.d.ts",
+  "scripts": {
+    "start": "tsx --env-file=.env index.ts",
+    "build": "tsup",
+    "build:paywall": "tsx src/paywall/build.ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "watch": "tsc --watch",
+    "format": "prettier -c .prettierrc --write \"**/*.{ts,js,cjs,json,md}\"",
+    "format:check": "prettier -c .prettierrc --check \"**/*.{ts,js,cjs,json,md}\"",
+    "lint": "eslint . --ext .ts --fix",
+    "lint:check": "eslint . --ext .ts"
+  },
+  "keywords": [],
+  "license": "Apache-2.0",
+  "author": "Coinbase Inc.",
+  "repository": "https://github.com/coinbase/x402",
+  "description": "x402 Payment Protocol",
+  "devDependencies": {
+    "@coinbase/onchainkit": "^0.38.14",
+    "@craftamap/esbuild-plugin-html": "^0.9.0",
+    "@eslint/js": "^9.24.0",
+    "@types/node": "^22.13.4",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "@typescript-eslint/eslint-plugin": "^8.29.1",
+    "@typescript-eslint/parser": "^8.29.1",
+    "@wagmi/connectors": "^5.8.1",
+    "@wagmi/core": "^2.17.1",
+    "buffer": "^6.0.3",
+    "esbuild": "^0.25.4",
+    "eslint": "^9.24.0",
+    "eslint-plugin-import": "^2.31.0",
+    "eslint-plugin-jsdoc": "^50.6.9",
+    "eslint-plugin-prettier": "^5.2.6",
+    "prettier": "3.5.2",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "tsup": "^8.4.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3",
+    "viem": "^2.21.26",
+    "vite": "^6.2.6",
+    "vite-tsconfig-paths": "^5.1.4",
+    "vitest": "^3.0.5"
+  },
+  "dependencies": {
+    "@hashgraph/sdk": "^2.74.0",
+    "@scure/base": "^1.2.6",
+    "@solana-program/compute-budget": "^0.8.0",
+    "@solana-program/token": "^0.5.1",
+    "@solana-program/token-2022": "^0.4.2",
+    "@solana/kit": "^2.1.1",
+    "@solana/transaction-confirmation": "^2.1.1",
+    "viem": "^2.21.26",
+    "wagmi": "^2.15.6",
+    "zod": "^3.24.2"
+  },
+  "exports": {
+    "./shared": {
+      "import": {
+        "types": "./dist/esm/shared/index.d.mts",
+        "default": "./dist/esm/shared/index.mjs"
+      },
+      "require": {
+        "types": "./dist/cjs/shared/index.d.ts",
+        "default": "./dist/cjs/shared/index.js"
+      }
+    },
+    "./types/shared/network": {
+      "import": {
+        "types": "./dist/esm/types/shared/network.d.mts",
+        "default": "./dist/esm/types/shared/network.mjs"
+      },
+      "require": {
+        "types": "./dist/cjs/types/shared/network.d.ts",
+        "default": "./dist/cjs/types/shared/network.js"
+      }
+    },
+    "./types/shared/middleware": {
+      "import": {
+        "types": "./dist/esm/types/shared/middleware.d.mts",
+        "default": "./dist/esm/types/shared/middleware.mjs"
+      },
+      "require": {
+        "types": "./dist/cjs/types/shared/middleware.d.ts",
+        "default": "./dist/cjs/types/shared/middleware.js"
+      }
+    },
+    "./types/shared/money": {
+      "import": {
+        "types": "./dist/esm/types/shared/money.d.mts",
+        "default": "./dist/esm/types/shared/money.mjs"
+      },
+      "require": {
+        "types": "./dist/cjs/types/shared/money.d.ts",
+        "default": "./dist/cjs/types/shared/money.js"
+      }
+    },
+    "./types/verify": {
+      "import": {
+        "types": "./dist/esm/types/verify/index.d.mts",
+        "default": "./dist/esm/types/verify/index.mjs"
+      },
+      "require": {
+        "types": "./dist/cjs/types/verify/index.d.ts",
+        "default": "./dist/cjs/types/verify/index.js"
+      }
+    },
+    "./shared/middleware": {
+      "import": {
+        "types": "./dist/esm/shared/middleware.d.mts",
+        "default": "./dist/esm/shared/middleware.mjs"
+      },
+      "require": {
+        "types": "./dist/cjs/shared/middleware.d.ts",
+        "default": "./dist/cjs/shared/middleware.js"
+      }
+    },
+    "./shared/paywall": {
+      "import": {
+        "types": "./dist/esm/shared/paywall.d.mts",
+        "default": "./dist/esm/shared/paywall.mjs"
+      },
+      "require": {
+        "types": "./dist/cjs/shared/paywall.d.ts",
+        "default": "./dist/cjs/shared/paywall.js"
+      }
+    },
+    "./shared/json": {
+      "import": {
+        "types": "./dist/esm/shared/json.d.mts",
+        "default": "./dist/esm/shared/json.mjs"
+      },
+      "require": {
+        "types": "./dist/cjs/shared/json.d.ts",
+        "default": "./dist/cjs/shared/json.js"
+      }
+    },
+    "./shared/base64": {
+      "import": {
+        "types": "./dist/esm/shared/base64.d.mts",
+        "default": "./dist/esm/shared/base64.mjs"
+      },
+      "require": {
+        "types": "./dist/cjs/shared/base64.d.ts",
+        "default": "./dist/cjs/shared/base64.js"
+      }
+    },
+    "./shared/evm": {
+      "import": {
+        "types": "./dist/esm/shared/evm/index.d.mts",
+        "default": "./dist/esm/shared/evm/index.mjs"
+      },
+      "require": {
+        "types": "./dist/cjs/shared/evm/index.d.ts",
+        "default": "./dist/cjs/shared/evm/index.js"
+      }
+    },
+    "./schemes": {
+      "import": {
+        "types": "./dist/esm/schemes/index.d.mts",
+        "default": "./dist/esm/schemes/index.mjs"
+      },
+      "require": {
+        "types": "./dist/cjs/schemes/index.d.ts",
+        "default": "./dist/cjs/schemes/index.js"
+      }
+    },
+    "./schemes/exact/evm": {
+      "import": {
+        "types": "./dist/esm/schemes/exact/evm/index.d.mts",
+        "default": "./dist/esm/schemes/exact/evm/index.mjs"
+      },
+      "require": {
+        "types": "./dist/cjs/schemes/exact/evm/index.d.ts",
+        "default": "./dist/cjs/schemes/exact/evm/index.js"
+      }
+    },
+    "./schemes/exact/svm": {
+      "import": {
+        "types": "./dist/esm/schemes/exact/svm/index.d.mts",
+        "default": "./dist/esm/schemes/exact/svm/index.mjs"
+      },
+      "require": {
+        "types": "./dist/cjs/schemes/exact/svm/index.d.ts",
+        "default": "./dist/cjs/schemes/exact/svm/index.js"
+      }
+    },
+    "./schemes/exact/hedera": {
+      "import": {
+        "types": "./dist/esm/schemes/exact/hedera/index.d.mts",
+        "default": "./dist/esm/schemes/exact/hedera/index.mjs"
+      },
+      "require": {
+        "types": "./dist/cjs/schemes/exact/hedera/index.d.ts",
+        "default": "./dist/cjs/schemes/exact/hedera/index.js"
+      }
+    },
+    "./schemes/exact/evm/utils/paymentUtils": {
+      "import": {
+        "types": "./dist/esm/schemes/exact/evm/utils/paymentUtils.d.mts",
+        "default": "./dist/esm/schemes/exact/evm/utils/paymentUtils.mjs"
+      },
+      "require": {
+        "types": "./dist/cjs/schemes/exact/evm/utils/paymentUtils.d.ts",
+        "default": "./dist/cjs/schemes/exact/evm/utils/paymentUtils.js"
+      }
+    },
+    "./client": {
+      "import": {
+        "types": "./dist/esm/client/index.d.mts",
+        "default": "./dist/esm/client/index.mjs"
+      },
+      "require": {
+        "types": "./dist/cjs/client/index.d.ts",
+        "default": "./dist/cjs/client/index.js"
+      }
+    },
+    "./verify": {
+      "import": {
+        "types": "./dist/esm/verify/index.d.mts",
+        "default": "./dist/esm/verify/index.mjs"
+      },
+      "require": {
+        "types": "./dist/cjs/verify/index.d.ts",
+        "default": "./dist/cjs/verify/index.js"
+      }
+    },
+    "./facilitator": {
+      "import": {
+        "types": "./dist/esm/facilitator/index.d.mts",
+        "default": "./dist/esm/facilitator/index.mjs"
+      },
+      "require": {
+        "types": "./dist/cjs/facilitator/index.d.ts",
+        "default": "./dist/cjs/facilitator/index.js"
+      }
+    },
+    "./types": {
+      "import": {
+        "types": "./dist/esm/types/index.d.mts",
+        "default": "./dist/esm/types/index.mjs"
+      },
+      "require": {
+        "types": "./dist/cjs/types/index.d.ts",
+        "default": "./dist/cjs/types/index.js"
+      }
+    }
+  },
+  "files": [
+    "dist"
+  ]
+}

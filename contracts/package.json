@@ -2,6 +2,7 @@
   "name": "blitzwing-contracts",
   "private": true,
   "devDependencies": {
+    "@nomicfoundation/hardhat-toolbox": "^6.1.2",
     "hardhat": "^2.22.0"
   },
   "scripts": {
