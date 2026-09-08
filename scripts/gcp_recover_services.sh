@@ -14,7 +14,6 @@ for pid in $(pgrep -f 'x402-gateway/index.ts' 2>/dev/null || true); do
   kill -9 "$pid" 2>/dev/null || true
 done
 pkill -9 -f 'gcp_restart_orchestrator' 2>/dev/null || true
-pkill -9 -f 'gcp_recover_services' 2>/dev/null || true
 sleep 3
 
 # Clear corrupted HCS topic cache (Java object repr instead of 0.0.xxx).
