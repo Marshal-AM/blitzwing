@@ -58,8 +58,10 @@ if ! deps_ready; then
   {
     echo "== pip install torch =="
     pip_install torch --index-url https://download.pytorch.org/whl/cpu
+    echo "== pip install build tools =="
+    pip_install setuptools wheel
     echo "== pip install petals =="
-    pip_install -e "${ROOT}/petals"
+    pip_install -e "${ROOT}/petals" --no-build-isolation
     echo "== pip install shard_manager + orchestrator reqs =="
     pip_install -r "${ROOT}/shard_manager/requirements.txt"
     pip_install -r "${ROOT}/orchestrator/requirements.txt"
