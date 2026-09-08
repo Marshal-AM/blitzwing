@@ -236,7 +236,8 @@ class HederaPayoutService:
                 )
             resp = tx.execute(client)
             receipt = resp.getReceipt(client)
-            payout_tx_id = str(resp.transactionId)
+            # Use toString() to get proper transaction ID format, not Python repr
+            payout_tx_id = resp.transactionId.toString() if hasattr(resp.transactionId, 'toString') else str(resp.transactionId)
             logger.info(
                 "Redistributed %s tinybars to %s hosts tx=%s status=%s",
                 total,

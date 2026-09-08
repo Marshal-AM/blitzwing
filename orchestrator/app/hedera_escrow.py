@@ -91,7 +91,8 @@ class HederaEscrowService:
         )
         resp = tx.execute(client)
         receipt = resp.getReceipt(client)
-        tx_id = str(resp.transactionId)
+        # Use toString() to get proper transaction ID format, not Python repr
+        tx_id = resp.transactionId.toString() if hasattr(resp.transactionId, 'toString') else str(resp.transactionId)
         logger.info("Escrow release tx=%s status=%s", tx_id, receipt.status)
         return {
             "request_id": request_id,
