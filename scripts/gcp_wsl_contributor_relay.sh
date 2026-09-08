@@ -73,7 +73,19 @@ HOST_ID="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["host_id"])' 
 BLOCKS="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["block_indices"])' <<<"$ASSIGNMENT")"
 PEERS="$(python3 -c 'import json,sys; print(",".join(json.load(sys.stdin).get("initial_peers",[])))' <<<"$ASSIGNMENT")"
 
-# ngrok optional — use if already running on :4040
+# Start ngrok TCP tunnel if not already running (reliable public announce for WSL).
+if ! curl -sf http://127.0.0.1:4040/api/tunnels >/dev/null 2>&1; then
+  if command -v ngrok >/dev/null 2>&1; then
+    echo "starting ngrok tcp ${PETALS_PORT}…"
+    setsid ngrok tcp "${PETALS_PORT}" --log=stdout > "${LOG_DIR}/ngrok_contrib.out" 2>&1 < /dev/null &
+    sleep 5
+  elif [[ -x "${HOME}/bin/ngrok" ]]; then
+    setsid "${HOME}/bin/ngrok" tcp "${PETALS_PORT}" --log=stdout > "${LOG_DIR}/ngrok_contrib.out" 2>&1 < /dev/null &
+    sleep 5
+  fi
+fi
+
+# ngrok optional — use if running on :4040
 ANNOUNCE_MADDRS=""
 if curl -sf http://127.0.0.1:4040/api/tunnels >/dev/null 2>&1; then
   ANNOUNCE_MADDRS="$(python3 -c '
@@ -90,7 +102,9 @@ print(f"/dns4/{u.hostname}/tcp/{u.port}")
 fi
 
 USE_AUTO_RELAY=1
+SAVED_ANNOUNCE=""
 if [[ -n "$ANNOUNCE_MADDRS" ]]; then
+  SAVED_ANNOUNCE="$ANNOUNCE_MADDRS"
   USE_AUTO_RELAY=0
 fi
 
@@ -106,9 +120,9 @@ export PETALS_USE_AUTO_RELAY="$USE_AUTO_RELAY"
 export PETALS_SKIP_REACHABILITY_CHECK=1
 export PETALS_DEVICE=cpu
 export PETALS_QUANT_TYPE=none
-unset ANNOUNCE_MADDRS || true
-if [[ -n "${ANNOUNCE_MADDRS:-}" ]]; then
-  export ANNOUNCE_MADDRS
+if [[ -n "$SAVED_ANNOUNCE" ]]; then
+  export ANNOUNCE_MADDRS="$SAVED_ANNOUNCE"
+  unset PUBLIC_IP
 fi
 
 : > "${LOG_DIR}/contrib_shard.out"
@@ -134,9 +148,11 @@ echo "waiting 45s for DHT block announcements…"
 sleep 45
 
 PEER_MADDR=""
-if [[ -n "${ANNOUNCE_MADDRS:-}" ]]; then
-  P2P="$(grep -oE 'p2p/[A-Za-z0-9]+' "${LOG_DIR}/contrib_shard.out" | head -1 | cut -d/ -f2)"
-  PEER_MADDR="${ANNOUNCE_MADDRS}/p2p/${P2P}"
+if [[ -n "$SAVED_ANNOUNCE" ]]; then
+  P2P="$(grep -oE 'Running a server on .*/p2p/([A-Za-z0-9]+)' "${LOG_DIR}/contrib_shard.out" | tail -1 | grep -oE 'p2p/[A-Za-z0-9]+' | cut -d/ -f2)"
+  if [[ -n "$P2P" ]]; then
+    PEER_MADDR="${SAVED_ANNOUNCE}/p2p/${P2P}"
+  fi
 else
   PEER_MADDR="$(grep -oE '/ip[46]/[^ ]+/p2p/[A-Za-z0-9]+' "${LOG_DIR}/contrib_shard.out" | grep -v '127.0.0.1' | head -1 || true)"
 fi

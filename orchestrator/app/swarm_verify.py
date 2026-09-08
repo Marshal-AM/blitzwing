@@ -59,6 +59,11 @@ def verify_blocks_visible(
     while time.time() < deadline:
         try:
             _update_with_timeout(sm, _UPDATE_TIMEOUT_SECONDS)
+        except TimeoutError:
+            logger.warning("DHT update poll timed out for blocks %s", block_indices)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Swarm verify poll error: %s", exc)
+        try:
             missing = [
                 idx
                 for idx in range(start, end)
@@ -73,10 +78,8 @@ def verify_blocks_visible(
                 block_indices,
                 missing,
             )
-        except TimeoutError:
-            logger.warning("DHT update poll timed out for blocks %s", block_indices)
         except Exception as exc:  # noqa: BLE001
-            logger.warning("Swarm verify poll error: %s", exc)
+            logger.warning("Swarm verify span check error: %s", exc)
         time.sleep(poll_interval)
 
     raise RuntimeError(
