@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import signal
 import subprocess
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import List, Optional
 
@@ -224,6 +226,7 @@ app = FastAPI(title="Blitzwing Shard Manager", version="0.1.0")
 
 _local_runner: Optional[LocalShardRunner] = None
 _http_chain: Optional[HttpChainInference] = None
+_inference_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="shard-infer")
 
 
 def _petals_log_path() -> str:
@@ -330,18 +333,23 @@ def start(body: Optional[ReloadRequest] = None) -> StatusResponse:
 
 
 @app.post("/v1/chain/prefix", response_model=PrefixResponse)
-def chain_prefix(body: PrefixRequest) -> PrefixResponse:
+async def chain_prefix(body: PrefixRequest) -> PrefixResponse:
     """Run embeddings + this node's prefix blocks; return hidden states (HTTP chain)."""
     st = manager.status()
     if not st.running:
         raise HTTPException(status_code=503, detail="Petals server not running")
-    try:
+
+    def _run() -> PrefixResponse:
         import torch
 
         runner = _get_local_runner()
         input_ids = torch.tensor([body.input_ids], dtype=torch.long)
         hidden = runner.forward_prefix(input_ids)
         return PrefixResponse(hidden=tensor_to_payload(hidden))
+
+    try:
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(_inference_executor, _run)
     except Exception as exc:  # noqa: BLE001
         logger.exception("HTTP prefix forward failed")
         raise HTTPException(status_code=503, detail=str(exc)) from exc
