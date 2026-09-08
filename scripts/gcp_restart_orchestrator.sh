@@ -20,6 +20,10 @@ sleep 2
 
 export API_PORT=8002
 export LOAD_AT_STARTUP=1
+for _jhome in /usr/lib/jvm/java-21-openjdk-amd64 /usr/lib/jvm/default-java; do
+  [[ -d "$_jhome" ]] && export JAVA_HOME="${_jhome}" && break
+done
+export JAVA_HOME="${JAVA_HOME:-/usr/lib/jvm/default-java}"
 nohup "$PY" -m uvicorn orchestrator.app.main:app --host 127.0.0.1 --port 8002 \
   > "${HOME}/blitzwing-logs/orchestrator.log" 2>&1 &
 

@@ -34,6 +34,13 @@ if ! command -v javac >/dev/null 2>&1; then
   sudo apt-get update -y
   sudo DEBIAN_FRONTEND=noninteractive apt-get install -y default-jdk-headless
 fi
+for _jhome in /usr/lib/jvm/java-21-openjdk-amd64 /usr/lib/jvm/default-java; do
+  if [[ -d "$_jhome" ]]; then
+    export JAVA_HOME="${_jhome}"
+    break
+  fi
+done
+export JAVA_HOME="${JAVA_HOME:-/usr/lib/jvm/default-java}"
 
 # --- shard manager (if not already) ---
 export PYTHONPATH="$ROOT"
@@ -87,6 +94,7 @@ export LOAD_AT_STARTUP=1
 export API_PORT=8002
 export INFERENCE_TIMEOUT_SECONDS="${INFERENCE_TIMEOUT_SECONDS:-600}"
 export MOTHER_PUBLIC_GATEWAY_URL="http://${PUBLIC_IP}:8000"
+export JAVA_HOME="${JAVA_HOME:-/usr/lib/jvm/default-java}"
 cd "$ROOT"
 nohup "$PY" -m uvicorn orchestrator.app.main:app --host 127.0.0.1 --port 8002 \
   > "${HOME}/blitzwing-logs/orchestrator.log" 2>&1 &

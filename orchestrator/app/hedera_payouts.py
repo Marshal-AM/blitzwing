@@ -61,6 +61,9 @@ class HederaPayoutService:
     def _ensure_client(self):
         if self._client is not None:
             return self._client
+        from orchestrator.app.hedera_jvm import ensure_java_vm
+
+        ensure_java_vm()
         try:
             from hedera import AccountId, Client, PrivateKey
         except ImportError as exc:  # pragma: no cover

@@ -7,6 +7,7 @@ import logging
 from typing import Any, Dict, List, Optional
 
 from orchestrator.app.config import Settings
+from orchestrator.app.hedera_jvm import big_integers, ensure_java_vm
 from orchestrator.app.registry import HostRecord
 
 logger = logging.getLogger(__name__)
@@ -32,6 +33,7 @@ class HederaEscrowService:
     ) -> Optional[Dict[str, Any]]:
         if not self.enabled:
             return None
+        ensure_java_vm()
         try:
             from hedera import (
                 AccountId,
@@ -42,8 +44,6 @@ class HederaEscrowService:
                 Hbar,
                 PrivateKey,
             )
-            # hedera-sdk-py uses JPype; java.math is available after hedera import starts JVM
-            from java.math import BigInteger
         except ImportError as exc:  # pragma: no cover
             raise RuntimeError("hedera-sdk-py required for escrow release") from exc
 
@@ -86,7 +86,7 @@ class HederaEscrowService:
                 addr = f"0x{addr}"
             solidity_addrs.append(addr)
         params.addAddressArray(solidity_addrs)
-        params.addUint256Array([BigInteger(str(int(a))) for a in amounts])
+        params.addUint256Array(big_integers(amounts))
 
         contract_id = ContractId.fromString(self.settings.escrow_contract_id)
         tx = (

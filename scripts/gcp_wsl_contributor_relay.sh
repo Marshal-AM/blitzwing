@@ -38,16 +38,20 @@ PY
 }
 
 echo "== cleanup stale contributor =="
-pkill -9 -x ngrok 2>/dev/null || true
-pkill -9 -f 'ngrok tcp' 2>/dev/null || true
-fuser -k "${SHARD_PORT}/tcp" "${PETALS_PORT}/tcp" 4040/tcp 2>/dev/null || true
+if [[ "${BLITZWING_SKIP_GLOBAL_CLEANUP:-0}" != "1" ]]; then
+  pkill -9 -x ngrok 2>/dev/null || true
+  pkill -9 -f 'ngrok tcp' 2>/dev/null || true
+fi
+NGROK_WEB_PORT="${BLITZWING_NGROK_WEB_PORT:-4040}"
+fuser -k "${SHARD_PORT}/tcp" "${PETALS_PORT}/tcp" "${NGROK_WEB_PORT}/tcp" 2>/dev/null || true
 pkill -f "uvicorn shard_manager.app:app --host 0.0.0.0 --port ${SHARD_PORT}" 2>/dev/null || true
 pkill -f "petals.cli.run_server.*${PETALS_PORT}" 2>/dev/null || true
 sleep 2
 
-# Leave any pending contributors from prior runs
-HOSTS_JSON="$(api GET "${MOTHER_URL}/v1/hosts" || echo '{}')"
-python3 -c '
+# Leave any pending contributors from prior runs (skip when adding a 2nd contributor).
+if [[ "${BLITZWING_SKIP_LEAVE:-0}" != "1" ]]; then
+  HOSTS_JSON="$(api GET "${MOTHER_URL}/v1/hosts" || echo '{}')"
+  python3 -c '
 import json, sys, urllib.request
 mother = sys.argv[1]
 data = json.loads(sys.argv[2])
@@ -67,6 +71,7 @@ for h in data.get("hosts", []):
         except Exception as exc:
             print("leave failed", hid, exc)
 ' "$MOTHER_URL" "$HOSTS_JSON" || true
+fi
 
 # ngrok HTTP tunnel for shard manager — mother POSTs inference here (simple, reliable).
 SHARD_PUBLIC_URL="http://${HOST_IP}:${SHARD_PORT}"
@@ -78,21 +83,23 @@ if [[ "${BLITZWING_USE_NGROK_HTTP:-1}" == "1" ]]; then
     NGROK_BIN="${HOME}/bin/ngrok"
   fi
   if [[ -n "$NGROK_BIN" ]]; then
-    if ! curl -sf http://127.0.0.1:4040/api/tunnels >/dev/null 2>&1; then
-      echo "starting ngrok http ${SHARD_PORT}…"
-      setsid "$NGROK_BIN" http "${SHARD_PORT}" --log=stdout > "${LOG_DIR}/ngrok_http.out" 2>&1 < /dev/null &
+    if ! curl -sf "http://127.0.0.1:${NGROK_WEB_PORT}/api/tunnels" >/dev/null 2>&1; then
+      echo "starting ngrok http ${SHARD_PORT} (web ${NGROK_WEB_PORT})…"
+      setsid "$NGROK_BIN" http "${SHARD_PORT}" --web-addr="127.0.0.1:${NGROK_WEB_PORT}" \
+        --log=stdout > "${LOG_DIR}/ngrok_http_${SHARD_PORT}.out" 2>&1 < /dev/null &
       sleep 5
     fi
     SHARD_PUBLIC_URL="$(python3 -c '
-import json, urllib.request
-d = json.load(urllib.request.urlopen("http://127.0.0.1:4040/api/tunnels"))
-t = next((x for x in d.get("tunnels", []) if x.get("proto") == "https"), None)
-if not t:
-    t = next((x for x in d.get("tunnels", []) if x.get("proto") == "http"), None)
-if not t:
-    raise SystemExit(1)
-print(t["public_url"].rstrip("/"))
-' 2>/dev/null || true)"
+import json, os, sys, urllib.request
+port = os.environ["SHARD_PORT"]
+web = os.environ["NGROK_WEB_PORT"]
+with urllib.request.urlopen(f"http://127.0.0.1:{web}/api/tunnels", timeout=10) as r:
+    data = json.load(r)
+for t in data.get("tunnels", []):
+    if str(t.get("config", {}).get("addr", "")).endswith(f":{port}"):
+        print(t["public_url"])
+        break
+' SHARD_PORT="$SHARD_PORT" NGROK_WEB_PORT="$NGROK_WEB_PORT" 2>/dev/null || true)"
     echo "shard_public_url=${SHARD_PUBLIC_URL}"
   fi
 fi
@@ -117,7 +124,7 @@ export BLOCK_INDICES="$BLOCKS"
 export NEW_SWARM=1
 export INITIAL_PEERS=""
 export PETALS_PORT
-export IDENTITY_PATH="${LOG_DIR}/petals-identity-contributor"
+export IDENTITY_PATH="${IDENTITY_PATH:-${LOG_DIR}/petals-identity-contributor}"
 export PETALS_PYTHON="${HOME}/.blitzwing-venv/bin/python"
 export SHARD_AUTO_START=1
 export PETALS_USE_AUTO_RELAY=0
@@ -129,7 +136,7 @@ export BLITZWING_HOST_ID="$HOST_ID"
 export BLITZWING_MOTHER_URL="$MOTHER_URL"
 export MOTHER_PUBLIC_SHARD_URL="$MOTHER_URL"
 export HEARTBEAT_INTERVAL_SECONDS=20
-export CONTRIB_SHARD_LOG="${LOG_DIR}/contrib_shard.out"
+export CONTRIB_SHARD_LOG="${CONTRIB_SHARD_LOG:-${LOG_DIR}/contrib_shard.out}"
 export BLITZWING_SHARD_MANAGER_URL="${SHARD_PUBLIC_URL}"
 
 : > "${LOG_DIR}/contrib_shard.out"
