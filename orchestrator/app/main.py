@@ -7,6 +7,7 @@ import logging
 from contextlib import asynccontextmanager
 from typing import AsyncIterator, Optional
 
+import httpx
 from fastapi import FastAPI, Header, HTTPException
 from fastapi.responses import StreamingResponse
 
@@ -43,6 +44,19 @@ logger = logging.getLogger(__name__)
 _reaper_task: Optional[asyncio.Task] = None
 
 
+def _sync_mother_shard_blocks(registry, shard_url: str) -> None:
+    try:
+        with httpx.Client(timeout=15.0) as client:
+            resp = client.get(f"{shard_url.rstrip('/')}/status")
+            resp.raise_for_status()
+            blocks = resp.json().get("block_indices")
+            if blocks:
+                registry.sync_mother_from_shard(blocks)
+                logger.info("Synced mother registry blocks to %s", blocks)
+    except Exception:  # noqa: BLE001
+        logger.warning("Could not sync mother blocks from shard manager", exc_info=True)
+
+
 async def _reaper_loop() -> None:
     settings = get_settings()
     while True:
@@ -70,6 +84,10 @@ async def lifespan(app: FastAPI):
         registry.set_bootstrap_peers(settings.announce_peers)
     elif settings.initial_peers:
         registry.set_bootstrap_peers(settings.initial_peers)
+
+    await asyncio.to_thread(
+        _sync_mother_shard_blocks, registry, settings.mother_shard_manager_url
+    )
 
     if settings.x402_enabled:
         if not settings.mother_account_id or not settings.mother_private_key:
@@ -231,6 +249,8 @@ async def hosts_ready(body: HostReadyRequest) -> dict:
             timeout_seconds=settings.ready_verify_timeout_seconds,
         )
         host = await asyncio.to_thread(registry.mark_ready, body.host_id, body.peer_multiaddr)
+        await asyncio.to_thread(get_engine().reload)
+        logger.info("Petals client reloaded after handoff for %s", body.host_id)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except RuntimeError as exc:

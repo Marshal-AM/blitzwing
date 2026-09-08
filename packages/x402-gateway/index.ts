@@ -77,13 +77,18 @@ function adapterFromHono(c: {
   };
 }
 
+const UPSTREAM_TIMEOUT_MS = Number(process.env.UPSTREAM_TIMEOUT_MS || 300_000);
+
 async function proxyUpstream(
   pathAndQuery: string,
   init: RequestInit,
 ): Promise<Response> {
   const url = `${upstream}${pathAndQuery}`;
   try {
-    return await fetch(url, init);
+    return await fetch(url, {
+      ...init,
+      signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
+    });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     return new Response(

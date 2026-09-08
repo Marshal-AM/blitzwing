@@ -44,6 +44,7 @@ class Settings:
     heartbeat_ttl_seconds: int = 180
     ready_verify_timeout_seconds: int = 120
     inference_timeout_seconds: int = 90
+    petals_use_auto_relay: bool = True
     # x402 / Hedera payouts
     x402_enabled: bool = False
     cost_per_layer_tinybars: int = 0
@@ -85,6 +86,7 @@ class Settings:
             inference_timeout_seconds=int(
                 os.getenv("INFERENCE_TIMEOUT_SECONDS", str(cls.inference_timeout_seconds))
             ),
+            petals_use_auto_relay=_truthy(os.getenv("PETALS_USE_AUTO_RELAY"), default=True),
             x402_enabled=_truthy(os.getenv("X402_ENABLED"), default=False),
             cost_per_layer_tinybars=int(cost_raw or "0"),
             mother_account_id=(os.getenv("MOTHER_ACCOUNT_ID") or None),

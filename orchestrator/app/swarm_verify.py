@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import time
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
 from typing import TYPE_CHECKING
 
 from orchestrator.app.registry import parse_range
@@ -13,6 +14,8 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+_UPDATE_TIMEOUT_SECONDS = 45.0
+
 
 def _sequence_manager(model):
     """Return RemoteSequenceManager from a distributed causal LM."""
@@ -21,6 +24,17 @@ def _sequence_manager(model):
     if hasattr(model, "transformer") and hasattr(model.transformer, "h"):
         return model.transformer.h.sequence_manager
     raise RuntimeError("Could not locate Petals sequence manager on model")
+
+
+def _update_with_timeout(sm, timeout_seconds: float) -> None:
+    """sm.update(wait=True) can block indefinitely; bound each poll."""
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        future = pool.submit(sm.update, True)
+        try:
+            future.result(timeout=timeout_seconds)
+        except FuturesTimeout:
+            logger.warning("DHT update timed out after %.0fs", timeout_seconds)
+            raise TimeoutError(f"DHT update timed out after {timeout_seconds}s")
 
 
 def verify_blocks_visible(
@@ -44,7 +58,7 @@ def verify_blocks_visible(
 
     while time.time() < deadline:
         try:
-            sm.update(wait=True)
+            _update_with_timeout(sm, _UPDATE_TIMEOUT_SECONDS)
             missing = [
                 idx
                 for idx in range(start, end)
@@ -59,6 +73,8 @@ def verify_blocks_visible(
                 block_indices,
                 missing,
             )
+        except TimeoutError:
+            logger.warning("DHT update poll timed out for blocks %s", block_indices)
         except Exception as exc:  # noqa: BLE001
             logger.warning("Swarm verify poll error: %s", exc)
         time.sleep(poll_interval)

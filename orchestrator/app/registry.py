@@ -23,6 +23,28 @@ def format_range(start: int, end: int) -> str:
     return f"{start}:{end}"
 
 
+def is_public_multiaddr(addr: str) -> bool:
+    """Skip RFC1918 / loopback addrs — they break mother bootstrap when appended."""
+    if not addr:
+        return False
+    lower = addr.lower()
+    for private in (
+        "/ip4/127.",
+        "/ip4/10.",
+        "/ip4/192.168.",
+        "/ip4/172.16.",
+        "/ip4/172.17.",
+        "/ip4/172.18.",
+        "/ip4/172.19.",
+        "/ip4/172.2",
+        "/ip4/172.30.",
+        "/ip4/172.31.",
+    ):
+        if private in lower:
+            return False
+    return "/p2p/" in lower
+
+
 def validate_hedera_account_id(account_id: str) -> str:
     value = (account_id or "").strip()
     parts = value.split(".")
@@ -78,6 +100,16 @@ class SwarmRegistry:
             status="online",
             hedera_account_id=mother_wallet,
         )
+
+    def sync_mother_from_shard(self, block_indices: str) -> None:
+        """Align mother registry record with live shard-manager block range."""
+        with self._lock:
+            mother = self.hosts.get("mother")
+            if not mother:
+                return
+            start, end = parse_range(block_indices)
+            mother.block_indices = block_indices
+            mother.layers_hosted = end - start
 
     def set_bootstrap_peers(self, peers: List[str]) -> None:
         with self._lock:
@@ -207,8 +239,9 @@ class SwarmRegistry:
             host.last_heartbeat = int(time.time())
             host.pending_range = None
             host.donor_shrink_to = None
-            if peer_multiaddr and peer_multiaddr not in self.bootstrap_peers:
-                self.bootstrap_peers.append(peer_multiaddr)
+            if peer_multiaddr and is_public_multiaddr(peer_multiaddr):
+                if peer_multiaddr not in self.bootstrap_peers:
+                    self.bootstrap_peers.append(peer_multiaddr)
             return host
 
     def get_host(self, host_id: str) -> HostRecord:
