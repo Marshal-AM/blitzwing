@@ -15,8 +15,17 @@ set -a
 source "$ROOT/.env"
 set +a
 
-pkill -f 'uvicorn orchestrator.app.main' || true
+pkill -9 -f 'uvicorn orchestrator.app.main' || true
+fuser -k 8002/tcp 2>/dev/null || true
 sleep 2
+# Ensure port is free before bind
+for i in $(seq 1 15); do
+  if ! ss -ltn | grep -q ':8002'; then
+    break
+  fi
+  fuser -k 8002/tcp 2>/dev/null || true
+  sleep 1
+done
 
 export API_PORT=8002
 export LOAD_AT_STARTUP=1
