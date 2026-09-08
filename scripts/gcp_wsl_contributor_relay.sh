@@ -68,47 +68,45 @@ for h in data.get("hosts", []):
             print("leave failed", hid, exc)
 ' "$MOTHER_URL" "$HOSTS_JSON" || true
 
+# ngrok HTTP tunnel for shard manager — mother POSTs inference here (simple, reliable).
+SHARD_PUBLIC_URL="http://${HOST_IP}:${SHARD_PORT}"
+if [[ "${BLITZWING_USE_NGROK_HTTP:-1}" == "1" ]]; then
+  NGROK_BIN=""
+  if command -v ngrok >/dev/null 2>&1; then
+    NGROK_BIN="ngrok"
+  elif [[ -x "${HOME}/bin/ngrok" ]]; then
+    NGROK_BIN="${HOME}/bin/ngrok"
+  fi
+  if [[ -n "$NGROK_BIN" ]]; then
+    if ! curl -sf http://127.0.0.1:4040/api/tunnels >/dev/null 2>&1; then
+      echo "starting ngrok http ${SHARD_PORT}…"
+      setsid "$NGROK_BIN" http "${SHARD_PORT}" --log=stdout > "${LOG_DIR}/ngrok_http.out" 2>&1 < /dev/null &
+      sleep 5
+    fi
+    SHARD_PUBLIC_URL="$(python3 -c '
+import json, urllib.request
+d = json.load(urllib.request.urlopen("http://127.0.0.1:4040/api/tunnels"))
+t = next((x for x in d.get("tunnels", []) if x.get("proto") == "https"), None)
+if not t:
+    t = next((x for x in d.get("tunnels", []) if x.get("proto") == "http"), None)
+if not t:
+    raise SystemExit(1)
+print(t["public_url"].rstrip("/"))
+' 2>/dev/null || true)"
+    echo "shard_public_url=${SHARD_PUBLIC_URL}"
+  fi
+fi
+
 echo "== join $LAYERS layers =="
-ASSIGNMENT="$(api POST "${MOTHER_URL}/v1/hosts/join" "{\"model\":\"TinyLlama/TinyLlama-1.1B-Chat-v1.0\",\"layers\":${LAYERS},\"public_ip\":\"${HOST_IP}\",\"shard_manager_url\":\"http://${HOST_IP}:${SHARD_PORT}\",\"hedera_account_id\":\"${HEDERA_ACCOUNT_ID}\"}")"
+ASSIGNMENT="$(api POST "${MOTHER_URL}/v1/hosts/join" "{\"model\":\"TinyLlama/TinyLlama-1.1B-Chat-v1.0\",\"layers\":${LAYERS},\"public_ip\":\"${HOST_IP}\",\"shard_manager_url\":\"${SHARD_PUBLIC_URL}\",\"hedera_account_id\":\"${HEDERA_ACCOUNT_ID}\"}")"
 echo "$ASSIGNMENT" | python3 -m json.tool
 HOST_ID="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["host_id"])' <<<"$ASSIGNMENT")"
 BLOCKS="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["block_indices"])' <<<"$ASSIGNMENT")"
 PEERS="$(python3 -c 'import json,sys; print(",".join(json.load(sys.stdin).get("initial_peers",[])))' <<<"$ASSIGNMENT")"
 
-# Start ngrok TCP tunnel only when explicitly requested (ngrok breaks libp2p DHT from GCP).
-if [[ "${BLITZWING_USE_NGROK:-0}" == "1" ]] && ! curl -sf http://127.0.0.1:4040/api/tunnels >/dev/null 2>&1; then
-  if command -v ngrok >/dev/null 2>&1; then
-    echo "starting ngrok tcp ${PETALS_PORT}…"
-    setsid ngrok tcp "${PETALS_PORT}" --log=stdout > "${LOG_DIR}/ngrok_contrib.out" 2>&1 < /dev/null &
-    sleep 5
-  elif [[ -x "${HOME}/bin/ngrok" ]]; then
-    setsid "${HOME}/bin/ngrok" tcp "${PETALS_PORT}" --log=stdout > "${LOG_DIR}/ngrok_contrib.out" 2>&1 < /dev/null &
-    sleep 5
-  fi
-fi
-
-# ngrok optional — use if running on :4040
-ANNOUNCE_MADDRS=""
-if curl -sf http://127.0.0.1:4040/api/tunnels >/dev/null 2>&1; then
-  ANNOUNCE_MADDRS="$(python3 -c '
-import json, urllib.request
-from urllib.parse import urlparse
-d = json.load(urllib.request.urlopen("http://127.0.0.1:4040/api/tunnels"))
-t = next((x for x in d.get("tunnels", []) if x.get("proto") == "tcp"), None)
-if not t:
-    raise SystemExit(1)
-u = urlparse(t["public_url"])
-print(f"/dns4/{u.hostname}/tcp/{u.port}")
-' 2>/dev/null || true)"
-  echo "ngrok announce=$ANNOUNCE_MADDRS"
-fi
-
+# Petals uses auto-relay for DHT; inference goes over HTTP to shard_manager (above).
 USE_AUTO_RELAY=1
 SAVED_ANNOUNCE=""
-if [[ -n "$ANNOUNCE_MADDRS" ]]; then
-  SAVED_ANNOUNCE="$ANNOUNCE_MADDRS"
-  USE_AUTO_RELAY=0
-fi
 
 export MODEL_NAME=TinyLlama/TinyLlama-1.1B-Chat-v1.0
 export PUBLIC_IP="$HOST_IP"
@@ -122,15 +120,11 @@ export PETALS_USE_AUTO_RELAY="$USE_AUTO_RELAY"
 export PETALS_SKIP_REACHABILITY_CHECK=1
 export PETALS_DEVICE=cpu
 export PETALS_QUANT_TYPE=none
-if [[ -n "$SAVED_ANNOUNCE" ]]; then
-  export ANNOUNCE_MADDRS="$SAVED_ANNOUNCE"
-  unset PUBLIC_IP
-fi
 
 : > "${LOG_DIR}/contrib_shard.out"
 nohup python -m uvicorn shard_manager.app:app --host 0.0.0.0 --port "$SHARD_PORT" \
   > "${LOG_DIR}/contrib_shard.out" 2>&1 &
-echo "shard_pid=$! blocks=$BLOCKS relay=$USE_AUTO_RELAY"
+echo "shard_pid=$! blocks=$BLOCKS http=${SHARD_PUBLIC_URL}"
 
 for i in $(seq 1 180); do
   if grep -q "Running a server on" "${LOG_DIR}/contrib_shard.out" 2>/dev/null; then
@@ -150,20 +144,7 @@ echo "waiting 45s for DHT block announcements…"
 sleep 45
 
 PEER_MADDR=""
-if [[ -n "$SAVED_ANNOUNCE" ]]; then
-  P2P="$(grep -oE 'Running a server on .*/p2p/([A-Za-z0-9]+)' "${LOG_DIR}/contrib_shard.out" | tail -1 | grep -oE 'p2p/[A-Za-z0-9]+' | cut -d/ -f2)"
-  if [[ -n "$P2P" ]]; then
-    PEER_MADDR="${SAVED_ANNOUNCE}/p2p/${P2P}"
-  fi
-else
-  # Prefer the contributor's own listen addr from "Running a server on", never bootstrap peers.
-  PEER_MADDR="$(grep -oE "Running a server on \\['([^']+)'\\]" "${LOG_DIR}/contrib_shard.out" | tail -1 | sed -E "s/.*\\['([^']+)'\\].*/\\1/" || true)"
-  if [[ -z "$PEER_MADDR" || "$PEER_MADDR" == *"172."* || "$PEER_MADDR" == *"192.168."* || "$PEER_MADDR" == *"127.0.0.1"* ]]; then
-    # Auto-relay: mother reaches us via DHT/relay — omit peer_multiaddr rather than sending junk.
-    PEER_MADDR=""
-  fi
-fi
-echo "PEER_MADDR=${PEER_MADDR:-<none>}"
+echo "PEER_MADDR=${PEER_MADDR:-<none>} (inference uses HTTP ${SHARD_PUBLIC_URL})"
 
 READY_BODY="{\"host_id\":\"${HOST_ID}\""
 if [[ -n "$PEER_MADDR" ]]; then

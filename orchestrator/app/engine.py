@@ -251,6 +251,28 @@ class PetalsEngine:
         top_p: Optional[float] = 0.9,
         stop: Optional[Iterable[str]] = None,
     ) -> GenerationResult:
+        from orchestrator.app.http_inference import (
+            generate_via_contributor_http,
+            pick_http_contributor,
+        )
+
+        contributor = pick_http_contributor()
+        if contributor:
+            try:
+                return generate_via_contributor_http(
+                    contributor,
+                    messages,
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                    top_p=top_p,
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "HTTP inference via contributor %s failed (%s); falling back to local Petals",
+                    contributor.host_id,
+                    exc,
+                )
+
         from petals.client.routing.sequence_manager import MissingBlocksError
 
         try:

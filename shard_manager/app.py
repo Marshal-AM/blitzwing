@@ -14,6 +14,8 @@ from typing import List, Optional
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
+from shard_manager.inference import get_contributor_inference
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -34,6 +36,20 @@ class StatusResponse(BaseModel):
     identity_path: str
     initial_peers: List[str] = []
     new_swarm: bool = False
+
+
+class ChatInferenceRequest(BaseModel):
+    messages: List[dict]
+    max_tokens: int = 64
+    temperature: float = 0.7
+    top_p: float = 0.9
+
+
+class ChatInferenceResponse(BaseModel):
+    text: str
+    prompt_tokens: int
+    completion_tokens: int
+    finish_reason: str
 
 
 class ShardManager:
@@ -247,3 +263,32 @@ def start(body: Optional[ReloadRequest] = None) -> StatusResponse:
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=500, detail=str(exc)) from exc
     return manager.status()
+
+
+@app.post("/v1/chat/completions", response_model=ChatInferenceResponse)
+def chat_completions(body: ChatInferenceRequest) -> ChatInferenceResponse:
+    """
+    Run full-model inference on this contributor over HTTP.
+    The contributor Petals client reaches mother blocks via libp2p (outbound);
+    tail blocks are served locally — no inbound libp2p from mother required.
+    """
+    st = manager.status()
+    if not st.running:
+        raise HTTPException(status_code=503, detail="Petals server not running")
+    try:
+        inf = get_contributor_inference(st.model, list(st.initial_peers))
+        result = inf.generate(
+            body.messages,
+            max_tokens=body.max_tokens,
+            temperature=body.temperature,
+            top_p=body.top_p,
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Contributor HTTP inference failed")
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return ChatInferenceResponse(
+        text=result.text,
+        prompt_tokens=result.prompt_tokens,
+        completion_tokens=result.completion_tokens,
+        finish_reason=result.finish_reason,
+    )
