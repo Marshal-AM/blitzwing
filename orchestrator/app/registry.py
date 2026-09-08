@@ -129,17 +129,34 @@ class SwarmRegistry:
             ]
 
     def max_carveable(self) -> int:
-        donor = self._largest_donor_locked()
-        if not donor:
-            return 0
-        start, end = parse_range(donor.block_indices)
-        return max(0, (end - start) - 1)
+        with self._lock:
+            donor = self._largest_donor_locked()
+            if not donor:
+                return 0
+            start, end = self._effective_donor_range(donor)
+            return max(0, (end - start) - 1)
 
     def _largest_donor_locked(self) -> Optional[HostRecord]:
         online = [h for h in self.hosts.values() if h.status == "online"]
         if not online:
             return None
         return max(online, key=lambda h: h.layers_hosted)
+
+    def _effective_donor_range(self, donor: HostRecord) -> Tuple[int, int]:
+        """
+        Return donor's effective range, accounting for pending allocations from it.
+
+        Pending contributors have blocks reserved from the donor's high end.
+        Until they become online (and donor shrinks), we must exclude those
+        blocks from future allocations to prevent gaps.
+        """
+        d_start, d_end = parse_range(donor.block_indices)
+        for h in self.hosts.values():
+            if h.status == "pending" and h.donor_host_id == donor.host_id:
+                p_start, _ = parse_range(h.block_indices)
+                if p_start < d_end:
+                    d_end = p_start
+        return d_start, d_end
 
     def join(
         self,
@@ -160,7 +177,8 @@ class SwarmRegistry:
             if not donor:
                 raise RuntimeError("No online donor available")
 
-            d_start, d_end = parse_range(donor.block_indices)
+            # Use effective range to account for pending allocations from this donor
+            d_start, d_end = self._effective_donor_range(donor)
             donor_len = d_end - d_start
             max_take = donor_len - 1
             if layers > max_take:
@@ -294,23 +312,58 @@ class SwarmRegistry:
                 logger.exception("Failed to reclaim %s", host.host_id)
         return reclaimed
 
-    def _reclaim_range(self, block_indices: str) -> None:
-        """Give reclaimed range back to the largest online donor (extend high end if contiguous)."""
+    def reap_stale_pending(self, ttl_seconds: int = 300) -> List[str]:
+        """Remove pending hosts that never completed the ready handshake."""
+        now = int(time.time())
+        removed: List[str] = []
         with self._lock:
-            donor = self._largest_donor_locked()
+            stale_pending = [
+                h
+                for h in self.hosts.values()
+                if h.role != "mother" and h.status == "pending" and now - h.joined_at > ttl_seconds
+            ]
+            for host in stale_pending:
+                logger.warning(
+                    "Removing stale pending host %s (joined %ss ago, never ready)",
+                    host.host_id,
+                    now - host.joined_at,
+                )
+                del self.hosts[host.host_id]
+                removed.append(host.host_id)
+        return removed
+
+    def _find_adjacent_donor(self, r_start: int, r_end: int) -> Optional[HostRecord]:
+        """Find an online host whose range is adjacent to the reclaimed range."""
+        for h in self.hosts.values():
+            if h.status != "online":
+                continue
+            h_start, h_end = parse_range(h.block_indices)
+            if h_end == r_start or r_end == h_start:
+                return h
+        return None
+
+    def _reclaim_range(self, block_indices: str) -> None:
+        """Give reclaimed range back to an adjacent donor to maintain contiguity."""
+        with self._lock:
+            r_start, r_end = parse_range(block_indices)
+
+            # Prefer an adjacent donor to maintain contiguous coverage
+            donor = self._find_adjacent_donor(r_start, r_end)
+            if not donor:
+                donor = self._largest_donor_locked()
             if not donor:
                 logger.error("No donor to reclaim range %s", block_indices)
                 return
-            r_start, r_end = parse_range(block_indices)
+
             d_start, d_end = parse_range(donor.block_indices)
-            # Prefer extending donor if ranges touch
+
+            # Extend donor to cover the reclaimed range
             if d_end == r_start:
                 new_range = format_range(d_start, r_end)
             elif r_end == d_start:
                 new_range = format_range(r_start, d_end)
             else:
-                # Non-contiguous: assign full span covering both (may overlap gaps — keep simple:
-                # expand donor to min start max end only if no other hosts occupy middle.
+                # Non-contiguous: only extend if no other online hosts occupy the gap
                 occupied = []
                 for h in self.hosts.values():
                     if h.host_id == donor.host_id or h.status != "online":
