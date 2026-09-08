@@ -24,23 +24,24 @@ nohup "$PY" -m uvicorn orchestrator.app.main:app --host 127.0.0.1 --port 8002 \
   > "${HOME}/blitzwing-logs/orchestrator.log" 2>&1 &
 
 for i in $(seq 1 60); do
-  if curl -sf http://127.0.0.1:8002/health >/dev/null; then
+  if curl -sf -m 3 http://127.0.0.1:8002/health >/dev/null; then
     echo "ORCH_OK"
     break
   fi
   sleep 2
 done
-curl -s http://127.0.0.1:8002/health || { tail -n 40 "${HOME}/blitzwing-logs/orchestrator.log"; exit 1; }
+curl -s -m 5 http://127.0.0.1:8002/health || { tail -n 40 "${HOME}/blitzwing-logs/orchestrator.log"; exit 1; }
 echo
 
 pkill -f 'x402-gateway/index.ts' || true
+fuser -k 8000/tcp 2>/dev/null || true
 sleep 1
 cd "$ROOT/packages/x402-gateway"
 nohup npx tsx index.ts > "${HOME}/blitzwing-logs/x402-gateway.log" 2>&1 &
 for i in $(seq 1 20); do
-  curl -sf http://127.0.0.1:8000/health >/dev/null && break
+  curl -sf -m 3 http://127.0.0.1:8000/health >/dev/null && break
   sleep 1
 done
-curl -s http://127.0.0.1:8000/health
+curl -s -m 5 http://127.0.0.1:8000/health
 echo
 echo RESTART_OK
