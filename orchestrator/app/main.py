@@ -7,11 +7,12 @@ import logging
 from contextlib import asynccontextmanager
 from typing import AsyncIterator, Optional
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, Header, HTTPException
 from fastapi.responses import StreamingResponse
 
 from orchestrator.app.config import get_settings
 from orchestrator.app.engine import get_engine, new_completion_id, now_ts
+from orchestrator.app.hedera_payouts import get_payout_service
 from orchestrator.app.registry import get_registry, init_registry
 from orchestrator.app.schemas import (
     ChatCompletionChunk,
@@ -33,7 +34,6 @@ from orchestrator.app.schemas import (
     StreamChoice,
     Usage,
 )
-
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -61,11 +61,23 @@ async def lifespan(app: FastAPI):
         settings.model_name,
         settings.total_layers,
         settings.mother_shard_manager_url,
+        mother_hedera_account_id=settings.mother_account_id,
     )
     if settings.announce_peers:
         registry.set_bootstrap_peers(settings.announce_peers)
     elif settings.initial_peers:
         registry.set_bootstrap_peers(settings.initial_peers)
+
+    if settings.x402_enabled:
+        if not settings.mother_account_id or not settings.mother_private_key:
+            logger.warning("X402_ENABLED but MOTHER_ACCOUNT_ID / MOTHER_PRIVATE_KEY missing")
+        elif settings.cost_per_layer_tinybars <= 0:
+            logger.warning("X402_ENABLED but COST_PER_LAYER_TINYBARS is not set")
+        else:
+            try:
+                await asyncio.to_thread(get_payout_service(settings).ensure_hcs_topic)
+            except Exception:  # noqa: BLE001
+                logger.exception("HCS topic bootstrap failed (payouts may still work)")
 
     engine = get_engine()
     if settings.load_at_startup:
@@ -95,8 +107,8 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="Blitzwing Petals Orchestrator",
-    version="0.2.0",
-    description="OpenAI-compatible chat completions + mother swarm host registry.",
+    version="0.3.0",
+    description="OpenAI-compatible chat completions + mother swarm host registry + x402 Hedera payments.",
     lifespan=lifespan,
 )
 
@@ -119,6 +131,8 @@ async def health() -> HealthResponse:
         detail=engine.load_error,
         max_layers_available=max_layers,
         total_layers=settings.total_layers,
+        cost_per_layer_tinybars=settings.cost_per_layer_tinybars or None,
+        x402_enabled=settings.x402_enabled,
     )
 
 
@@ -150,6 +164,7 @@ async def list_hosts() -> HostListResponse:
             status=h.status,
             public_ip=h.public_ip,
             last_heartbeat=h.last_heartbeat,
+            hedera_account_id=h.hedera_account_id,
         )
         for h in registry.list_hosts()
     ]
@@ -157,6 +172,7 @@ async def list_hosts() -> HostListResponse:
         model=settings.model_name,
         total_layers=settings.total_layers,
         max_layers_available=registry.max_carveable(),
+        cost_per_layer_tinybars=settings.cost_per_layer_tinybars or None,
         hosts=hosts,
     )
 
@@ -176,6 +192,7 @@ async def hosts_join(body: HostJoinRequest) -> HostJoinResponse:
             layers=body.layers,
             public_ip=body.public_ip,
             shard_manager_url=body.shard_manager_url,
+            hedera_account_id=body.hedera_account_id,
         )
     except ValueError as exc:
         raise HTTPException(
@@ -203,6 +220,7 @@ async def hosts_ready(body: HostReadyRequest) -> dict:
         "status": host.status,
         "block_indices": host.block_indices,
         "layers_hosted": host.layers_hosted,
+        "hedera_account_id": host.hedera_account_id,
     }
 
 
@@ -249,32 +267,71 @@ async def _ensure_model_or_400(request: ChatCompletionRequest) -> None:
         raise HTTPException(status_code=400, detail="messages must be a non-empty list")
 
 
-@app.post("/v1/chat/completions")
-async def chat_completions(request: ChatCompletionRequest):
-    await _ensure_model_or_400(request)
+def _run_payout(completion_id: str, x402_tx_id: Optional[str]) -> Optional[dict]:
+    """Layer-weighted HBAR redistribution after inference (post x402 settle)."""
     settings = get_settings()
+    payouts = get_payout_service(settings)
+    if not payouts.enabled:
+        return None
+    registry = get_registry()
+    hosts = registry.online_payout_hosts()
+    receipt = payouts.redistribute(
+        request_id=completion_id,
+        hosts=hosts,
+        x402_tx_id=x402_tx_id,
+    )
+    return payouts.receipt_dict(receipt)
+
+
+@app.post("/v1/chat/completions")
+async def chat_completions(
+    request: ChatCompletionRequest,
+    x402_tx_id: Optional[str] = Header(default=None, alias="X-Blitzwing-X402-Tx-Id"),
+    blitzwing_paid: Optional[str] = Header(default=None, alias="X-Blitzwing-Paid"),
+):
+    """
+    Inference + host payouts.
+
+    Payment verify/settle happens in packages/x402-gateway (@x402/core + @x402/hedera).
+    The gateway forwards X-Blitzwing-Paid=1 and X-Blitzwing-X402-Tx-Id after settlement.
+    """
+    settings = get_settings()
+    if settings.x402_enabled and blitzwing_paid != "1":
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "Chat is x402-gated. Call the public gateway on :8000 "
+                "(packages/x402-gateway); do not hit the internal orchestrator directly."
+            ),
+        )
+    await _ensure_model_or_400(request)
     engine = get_engine()
     completion_id = new_completion_id()
     created = now_ts()
     messages = _messages_as_dicts(request)
 
     if request.stream:
-        return StreamingResponse(
-            _stream_sse(
+        async def _paid_stream() -> AsyncIterator[str]:
+            async for chunk in _stream_sse(
                 engine=engine,
                 messages=messages,
                 request=request,
                 completion_id=completion_id,
                 created=created,
                 model=settings.model_name,
-            ),
-            media_type="text/event-stream",
-            headers={
-                "Cache-Control": "no-cache",
-                "Connection": "keep-alive",
-                "X-Accel-Buffering": "no",
-            },
-        )
+            ):
+                yield chunk
+            try:
+                await asyncio.to_thread(_run_payout, completion_id, x402_tx_id)
+            except Exception:  # noqa: BLE001
+                logger.exception("Post-stream payout failed")
+
+        headers = {
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        }
+        return StreamingResponse(_paid_stream(), media_type="text/event-stream", headers=headers)
 
     try:
         result = await asyncio.to_thread(
@@ -290,6 +347,12 @@ async def chat_completions(request: ChatCompletionRequest):
     except Exception as exc:  # noqa: BLE001
         logger.exception("Generation failed")
         raise HTTPException(status_code=500, detail=f"Generation failed: {exc}") from exc
+
+    payment_receipt = None
+    try:
+        payment_receipt = await asyncio.to_thread(_run_payout, completion_id, x402_tx_id)
+    except Exception:  # noqa: BLE001
+        logger.exception("Host redistribution failed after successful inference")
 
     return ChatCompletionResponse(
         id=completion_id,
@@ -307,6 +370,7 @@ async def chat_completions(request: ChatCompletionRequest):
             completion_tokens=result.completion_tokens,
             total_tokens=result.prompt_tokens + result.completion_tokens,
         ),
+        blitzwing_payment=payment_receipt,
     )
 
 

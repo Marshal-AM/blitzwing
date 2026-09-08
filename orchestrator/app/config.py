@@ -6,19 +6,27 @@ import os
 from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 
 try:
     from dotenv import load_dotenv
 
-    _env_file = Path(__file__).resolve().parents[1] / ".env"
-    load_dotenv(_env_file)
+    _orch_env = Path(__file__).resolve().parents[1] / ".env"
+    _root_env = Path(__file__).resolve().parents[2] / ".env"
+    load_dotenv(_root_env)
+    load_dotenv(_orch_env, override=True)
 except ImportError:
     pass
 
 
 def _split_peers(raw: str) -> List[str]:
     return [p.strip() for p in raw.split(",") if p.strip()]
+
+
+def _truthy(raw: Optional[str], default: bool = False) -> bool:
+    if raw is None or raw == "":
+        return default
+    return raw not in ("0", "false", "False", "no", "NO")
 
 
 @dataclass(frozen=True)
@@ -34,11 +42,24 @@ class Settings:
     total_layers: int = 22
     mother_shard_manager_url: str = "http://127.0.0.1:8001"
     heartbeat_ttl_seconds: int = 180
+    # x402 / Hedera payouts
+    x402_enabled: bool = False
+    cost_per_layer_tinybars: int = 0
+    mother_account_id: Optional[str] = None
+    mother_private_key: Optional[str] = None
+    facilitator_url: str = "http://127.0.0.1:8791"
+    hedera_network: str = "hedera-testnet"
+    hcs_topic_id: Optional[str] = None
+
+    @property
+    def request_price_tinybars(self) -> int:
+        return int(self.total_layers) * int(self.cost_per_layer_tinybars)
 
     @classmethod
     def from_env(cls) -> "Settings":
         peers_raw = os.getenv("INITIAL_PEERS", "")
         announce_raw = os.getenv("ANNOUNCE_PEERS", "") or peers_raw
+        cost_raw = os.getenv("COST_PER_LAYER_TINYBARS", "0")
         return cls(
             model_name=os.getenv("MODEL_NAME", cls.model_name),
             initial_peers=_split_peers(peers_raw),
@@ -53,6 +74,15 @@ class Settings:
                 "MOTHER_SHARD_MANAGER_URL", cls.mother_shard_manager_url
             ).rstrip("/"),
             heartbeat_ttl_seconds=int(os.getenv("HEARTBEAT_TTL_SECONDS", str(cls.heartbeat_ttl_seconds))),
+            x402_enabled=_truthy(os.getenv("X402_ENABLED"), default=False),
+            cost_per_layer_tinybars=int(cost_raw or "0"),
+            mother_account_id=(os.getenv("MOTHER_ACCOUNT_ID") or None),
+            mother_private_key=(os.getenv("MOTHER_PRIVATE_KEY") or None),
+            facilitator_url=(
+                os.getenv("FACILITATOR_URL") or cls.facilitator_url
+            ).rstrip("/"),
+            hedera_network=os.getenv("HEDERA_NETWORK", cls.hedera_network),
+            hcs_topic_id=(os.getenv("HCS_TOPIC_ID") or None),
         )
 
 
