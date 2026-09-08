@@ -42,6 +42,8 @@ class HederaEscrowService:
                 Hbar,
                 PrivateKey,
             )
+            # hedera-sdk-py uses JPype; java.math is available after hedera import starts JVM
+            from java.math import BigInteger
         except ImportError as exc:  # pragma: no cover
             raise RuntimeError("hedera-sdk-py required for escrow release") from exc
 
@@ -84,9 +86,6 @@ class HederaEscrowService:
                 addr = f"0x{addr}"
             solidity_addrs.append(addr)
         params.addAddressArray(solidity_addrs)
-        # hedera-sdk-py (JPype) requires java.math.BigInteger for uint256 arrays
-        from java.math import BigInteger
-
         params.addUint256Array([BigInteger(str(int(a))) for a in amounts])
 
         contract_id = ContractId.fromString(self.settings.escrow_contract_id)
