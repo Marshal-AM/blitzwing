@@ -55,7 +55,6 @@ def main() -> int:
         .setBytecode(bytecode)
         .setGas(2_000_000)
         .setConstructorParameters(params)
-        .setMaxTransactionFee(Hbar.fromTinybars(2_000_000_000))
     )
     resp = flow.execute(client)
     receipt = resp.getReceipt(client)
