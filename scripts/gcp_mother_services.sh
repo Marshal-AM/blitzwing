@@ -21,13 +21,19 @@ mkdir -p "${HOME}/blitzwing-logs"
 # --- facilitator :8791 ---
 cd "$ROOT/packages/x402-facilitator"
 npm install
-pkill -f 'packages/x402-facilitator' || true
-pkill -f 'x402-facilitator/index' || true
+pkill -f 'packages/x402-facilitator/index.ts' || true
+pkill -f 'x402-facilitator/index.ts' || true
 sleep 1
 nohup npx tsx index.ts > "${HOME}/blitzwing-logs/facilitator.log" 2>&1 &
 for i in $(seq 1 60); do curl -sf http://127.0.0.1:8791/health && break; sleep 2; done
 curl -sf http://127.0.0.1:8791/health || { echo FACILITATOR_FAILED; tail -n 80 "${HOME}/blitzwing-logs/facilitator.log"; exit 1; }
 echo
+
+# JDK required by hedera-sdk-py (payouts)
+if ! command -v javac >/dev/null 2>&1; then
+  sudo apt-get update -y
+  sudo DEBIAN_FRONTEND=noninteractive apt-get install -y default-jdk-headless
+fi
 
 # --- shard manager (if not already) ---
 export PYTHONPATH="$ROOT"
@@ -87,8 +93,8 @@ echo
 # --- gateway :8000 ---
 cd "$ROOT/packages/x402-gateway"
 npm install
-pkill -f 'packages/x402-gateway' || true
-pkill -f 'tsx index.ts' || true
+pkill -f 'packages/x402-gateway/index.ts' || true
+pkill -f 'x402-gateway/index.ts' || true
 sleep 1
 set -a; source "$ROOT/.env"; set +a
 nohup npx tsx index.ts > "${HOME}/blitzwing-logs/x402-gateway.log" 2>&1 &
