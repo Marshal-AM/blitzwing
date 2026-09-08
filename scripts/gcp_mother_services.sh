@@ -44,6 +44,7 @@ export PETALS_PORT=31337
 export PETALS_DEVICE=cpu
 export PETALS_QUANT_TYPE=none
 export PETALS_PYTHON="$PY"
+export PETALS_SERVER_LOG="${HOME}/blitzwing-logs/shard_manager.log"
 export SHARD_AUTO_START=1
 export ANNOUNCE_MADDRS="/ip4/${PUBLIC_IP}/tcp/31337"
 export PUBLIC_IP

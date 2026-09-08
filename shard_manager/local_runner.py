@@ -48,10 +48,19 @@ class LocalShardRunner:
         self.model_name = model_name
         self.block_start, self.block_end = parse_range(block_indices)
         self.local_port = local_port
-        self.log_path = log_path or os.getenv(
-            "CONTRIB_SHARD_LOG",
-            str(Path.home() / ".blitzwing" / "contrib_shard.out"),
-        )
+        if log_path:
+            self.log_path = log_path
+        else:
+            explicit = os.getenv("PETALS_SERVER_LOG") or os.getenv("CONTRIB_SHARD_LOG")
+            if explicit:
+                self.log_path = explicit
+            else:
+                mother_log = Path.home() / "blitzwing-logs" / "shard_manager.log"
+                self.log_path = (
+                    str(mother_log)
+                    if mother_log.exists()
+                    else str(Path.home() / ".blitzwing" / "contrib_shard.out")
+                )
         self._model = None
         self._tokenizer = None
         self._lock = threading.Lock()

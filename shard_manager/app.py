@@ -227,10 +227,13 @@ _http_chain: Optional[HttpChainInference] = None
 
 
 def _petals_log_path() -> str:
-    return os.getenv(
-        "PETALS_SERVER_LOG",
-        os.getenv("CONTRIB_SHARD_LOG", str(Path.home() / ".blitzwing" / "contrib_shard.out")),
-    )
+    explicit = os.getenv("PETALS_SERVER_LOG") or os.getenv("CONTRIB_SHARD_LOG")
+    if explicit:
+        return explicit
+    mother_log = Path.home() / "blitzwing-logs" / "shard_manager.log"
+    if mother_log.exists():
+        return str(mother_log)
+    return str(Path.home() / ".blitzwing" / "contrib_shard.out")
 
 
 def _get_local_runner() -> LocalShardRunner:
