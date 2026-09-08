@@ -15,6 +15,7 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
 from shard_manager.inference import get_contributor_inference
+from shard_manager.heartbeat import maybe_start_from_env
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -213,6 +214,7 @@ app = FastAPI(title="Blitzwing Shard Manager", version="0.1.0")
 
 @app.on_event("startup")
 def on_startup() -> None:
+    maybe_start_from_env()
     if manager._auto_start:
         try:
             manager.start(bootstrap=manager.new_swarm)

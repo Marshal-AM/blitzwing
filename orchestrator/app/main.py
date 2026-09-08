@@ -61,12 +61,21 @@ def _sync_mother_shard_blocks(registry, shard_url: str) -> None:
 async def _reaper_loop() -> None:
     settings = get_settings()
     while True:
-        await asyncio.sleep(30)
+        await asyncio.sleep(settings.reaper_interval_seconds)
         try:
             registry = get_registry()
+            removed = await asyncio.to_thread(registry.reap_stale_pending, 300)
+            if removed:
+                logger.info("Removed stale pending hosts: %s", removed)
             reaped = await asyncio.to_thread(registry.reap_stale, settings.heartbeat_ttl_seconds)
             if reaped:
-                logger.info("Reaped stale hosts: %s", reaped)
+                logger.info("Reaped stale contributors (layers returned to mother): %s", reaped)
+                engine = get_engine()
+                await asyncio.to_thread(
+                    engine.schedule_reload,
+                    delay_seconds=8.0,
+                    max_attempts=6,
+                )
         except Exception:  # noqa: BLE001
             logger.exception("Heartbeat reaper error")
 
@@ -89,6 +98,21 @@ async def lifespan(app: FastAPI):
     await asyncio.to_thread(
         _sync_mother_shard_blocks, registry, settings.mother_shard_manager_url
     )
+
+    try:
+        removed = await asyncio.to_thread(registry.reap_stale_pending, 300)
+        if removed:
+            logger.info("Startup: removed stale pending hosts %s", removed)
+        reaped = await asyncio.to_thread(registry.reap_stale, settings.heartbeat_ttl_seconds)
+        if reaped:
+            logger.info("Startup: reaped stale contributors %s", reaped)
+            await asyncio.to_thread(
+                get_engine().schedule_reload,
+                delay_seconds=8.0,
+                max_attempts=6,
+            )
+    except Exception:  # noqa: BLE001
+        logger.exception("Startup stale-host sweep failed")
 
     if settings.x402_enabled:
         if not settings.mother_account_id or not settings.mother_private_key:

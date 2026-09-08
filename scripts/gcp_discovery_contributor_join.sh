@@ -158,7 +158,7 @@ except urllib.error.HTTPError as e:
     raise SystemExit(1)
 PY
 
-nohup bash -c "while true; do curl -sf -X POST '${MOTHER_URL}/v1/hosts/heartbeat' -H 'Content-Type: application/json' -d '{\"host_id\":\"${HOST_ID}\"}' >/dev/null || true; sleep 60; done" \
+nohup bash -c "while true; do curl -sf -X POST '${MOTHER_URL}/v1/hosts/heartbeat' -H 'Content-Type: application/json' -d '{\"host_id\":\"${HOST_ID}\"}' >/dev/null || true; sleep 20; done" \
   > "${LOG_DIR}/contrib_heartbeat.out" 2>&1 &
 
 echo "== hosts after ready =="

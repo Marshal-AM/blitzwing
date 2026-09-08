@@ -2,16 +2,26 @@
 
 from __future__ import annotations
 
+import json
 import logging
+import os
 import threading
 import time
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
+from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 import httpx
 
 logger = logging.getLogger(__name__)
+
+
+def _persist_path() -> Path:
+    raw = os.getenv("REGISTRY_PERSIST_PATH", "")
+    if raw:
+        return Path(raw).expanduser()
+    return Path.home() / ".blitzwing" / "swarm_registry.json"
 
 
 def parse_range(block_indices: str) -> Tuple[int, int]:
@@ -100,6 +110,47 @@ class SwarmRegistry:
             status="online",
             hedera_account_id=mother_wallet,
         )
+
+    def persist(self) -> None:
+        """Write registry to disk so contributor assignments survive orchestrator restarts."""
+        path = _persist_path()
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with self._lock:
+                payload = {
+                    "model": self.model,
+                    "total_layers": self.total_layers,
+                    "bootstrap_peers": list(self.bootstrap_peers),
+                    "hosts": {
+                        hid: asdict(host) for hid, host in self.hosts.items()
+                    },
+                }
+            path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        except Exception:  # noqa: BLE001
+            logger.exception("Failed to persist swarm registry to %s", path)
+
+    @classmethod
+    def load_persisted(
+        cls,
+        path: Path,
+        model: str,
+        total_layers: int,
+        mother_shard_manager_url: str,
+        mother_hedera_account_id: Optional[str] = None,
+    ) -> "SwarmRegistry":
+        data = json.loads(path.read_text(encoding="utf-8"))
+        reg = cls(model, total_layers, mother_shard_manager_url, mother_hedera_account_id)
+        with reg._lock:
+            reg.hosts = {
+                hid: HostRecord(**host_data) for hid, host_data in data.get("hosts", {}).items()
+            }
+            reg.bootstrap_peers = list(data.get("bootstrap_peers", []))
+            mother = reg.hosts.get("mother")
+            if mother:
+                mother.shard_manager_url = mother_shard_manager_url.rstrip("/")
+                mother.role = "mother"
+                mother.status = "online"
+        return reg
 
     def sync_mother_from_shard(self, block_indices: str) -> None:
         """Align mother registry record with live shard-manager block range."""
@@ -209,6 +260,7 @@ class SwarmRegistry:
             )
             self.hosts[host_id] = record
 
+            self.persist()
             return {
                 "host_id": host_id,
                 "model": self.model,
@@ -260,6 +312,7 @@ class SwarmRegistry:
             if peer_multiaddr and is_public_multiaddr(peer_multiaddr):
                 if peer_multiaddr not in self.bootstrap_peers:
                     self.bootstrap_peers.append(peer_multiaddr)
+            self.persist()
             return host
 
     def get_host(self, host_id: str) -> HostRecord:
@@ -293,8 +346,9 @@ class SwarmRegistry:
 
         if range_to_reclaim:
             self._reclaim_range(range_to_reclaim)
+        self.persist()
 
-    def reap_stale(self, ttl_seconds: int = 180) -> List[str]:
+    def reap_stale(self, ttl_seconds: int = 60) -> List[str]:
         now = int(time.time())
         reclaimed: List[str] = []
         with self._lock:
@@ -305,11 +359,17 @@ class SwarmRegistry:
             ]
         for host in stale:
             try:
-                logger.warning("Reaping stale host %s", host.host_id)
+                logger.warning(
+                    "Reaping stale host %s (no heartbeat for >%ss)",
+                    host.host_id,
+                    ttl_seconds,
+                )
                 self.leave(host.host_id)
                 reclaimed.append(host.host_id)
             except Exception:  # noqa: BLE001
                 logger.exception("Failed to reclaim %s", host.host_id)
+        if reclaimed:
+            self.persist()
         return reclaimed
 
     def reap_stale_pending(self, ttl_seconds: int = 300) -> List[str]:
@@ -330,7 +390,15 @@ class SwarmRegistry:
                 )
                 del self.hosts[host.host_id]
                 removed.append(host.host_id)
+        if removed:
+            self.persist()
         return removed
+
+    def _mother_locked(self) -> Optional[HostRecord]:
+        mother = self.hosts.get("mother")
+        if mother and mother.status == "online":
+            return mother
+        return None
 
     def _find_adjacent_donor(self, r_start: int, r_end: int) -> Optional[HostRecord]:
         """Find an online host whose range is adjacent to the reclaimed range."""
@@ -343,27 +411,23 @@ class SwarmRegistry:
         return None
 
     def _reclaim_range(self, block_indices: str) -> None:
-        """Give reclaimed range back to an adjacent donor to maintain contiguity."""
+        """Return reclaimed contributor layers to the mother node (extend Petals range)."""
         with self._lock:
             r_start, r_end = parse_range(block_indices)
-
-            # Prefer an adjacent donor to maintain contiguous coverage
-            donor = self._find_adjacent_donor(r_start, r_end)
+            donor = self._mother_locked()
             if not donor:
-                donor = self._largest_donor_locked()
+                donor = self._find_adjacent_donor(r_start, r_end) or self._largest_donor_locked()
             if not donor:
                 logger.error("No donor to reclaim range %s", block_indices)
                 return
 
             d_start, d_end = parse_range(donor.block_indices)
 
-            # Extend donor to cover the reclaimed range
             if d_end == r_start:
                 new_range = format_range(d_start, r_end)
             elif r_end == d_start:
                 new_range = format_range(r_start, d_end)
             else:
-                # Non-contiguous: only extend if no other online hosts occupy the gap
                 occupied = []
                 for h in self.hosts.values():
                     if h.host_id == donor.host_id or h.status != "online":
@@ -383,6 +447,12 @@ class SwarmRegistry:
             donor_url = donor.shard_manager_url
             donor_id = donor.host_id
 
+        logger.info(
+            "Reclaiming %s onto %s -> %s",
+            block_indices,
+            donor_id,
+            new_range,
+        )
         self._reload_shard_manager(donor_url, new_range)
         with self._lock:
             donor = self.hosts[donor_id]
@@ -420,12 +490,27 @@ def init_registry(
     mother_hedera_account_id: Optional[str] = None,
 ) -> SwarmRegistry:
     global _registry
+    path = _persist_path()
+    if path.exists():
+        try:
+            _registry = SwarmRegistry.load_persisted(
+                path,
+                model,
+                total_layers,
+                mother_shard_manager_url,
+                mother_hedera_account_id=mother_hedera_account_id,
+            )
+            logger.info("Loaded swarm registry from %s (%s hosts)", path, len(_registry.hosts))
+            return _registry
+        except Exception:  # noqa: BLE001
+            logger.exception("Failed to load registry from %s — starting fresh", path)
     _registry = SwarmRegistry(
         model,
         total_layers,
         mother_shard_manager_url,
         mother_hedera_account_id=mother_hedera_account_id,
     )
+    _registry.persist()
     return _registry
 
 

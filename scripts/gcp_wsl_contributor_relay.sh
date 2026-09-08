@@ -120,6 +120,9 @@ export PETALS_USE_AUTO_RELAY="$USE_AUTO_RELAY"
 export PETALS_SKIP_REACHABILITY_CHECK=1
 export PETALS_DEVICE=cpu
 export PETALS_QUANT_TYPE=none
+export BLITZWING_HOST_ID="$HOST_ID"
+export BLITZWING_MOTHER_URL="$MOTHER_URL"
+export HEARTBEAT_INTERVAL_SECONDS=20
 
 : > "${LOG_DIR}/contrib_shard.out"
 nohup python -m uvicorn shard_manager.app:app --host 0.0.0.0 --port "$SHARD_PORT" \
@@ -156,7 +159,7 @@ echo "== ready handoff =="
 READY_OUT="$(api POST "${MOTHER_URL}/v1/hosts/ready" "$READY_BODY")"
 echo "$READY_OUT" | python3 -m json.tool
 
-nohup bash -c "while true; do curl -sf -X POST '${MOTHER_URL}/v1/hosts/heartbeat' -H 'Content-Type: application/json' -d '{\"host_id\":\"${HOST_ID}\"}' >/dev/null || true; sleep 60; done" \
+nohup bash -c "while true; do curl -sf -X POST '${MOTHER_URL}/v1/hosts/heartbeat' -H 'Content-Type: application/json' -d '{\"host_id\":\"${HOST_ID}\"}' >/dev/null || true; sleep 20; done" \
   > "${LOG_DIR}/contrib_heartbeat.out" 2>&1 &
 
 echo "== hosts after ready =="

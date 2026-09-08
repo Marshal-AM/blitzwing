@@ -18,6 +18,7 @@ import {
   venvPython,
 } from "./install.js";
 import { saveState, loadState, clearState, ensureHome } from "./state.js";
+import { startContributorHeartbeatDaemon } from "./heartbeat.js";
 
 function parseArgs(argv) {
   const out = { cmd: null, discoveryUrl: process.env.BLITZWING_DISCOVERY_URL || DEFAULT_DISCOVERY_URL };
@@ -322,38 +323,15 @@ async function wizard(args) {
     joined_at: new Date().toISOString(),
   };
   saveState(state);
-  startHeartbeatDaemon(state);
+  startContributorHeartbeatDaemon({
+    motherUrl: state.mother_url,
+    hostId: state.host_id,
+  });
 
   p.outro(
     `${color.green("You are online.")} Hosting ${color.cyan(String(state.layers_hosted))} layers of ${color.cyan(state.model)} at ${state.block_indices}\n` +
       `Run ${color.bold("blitzwing status")} anytime, or ${color.bold("blitzwing leave")} to exit.`
   );
-}
-
-function startHeartbeatDaemon(state) {
-  const hbPath = path.join(HOME_DIR, "heartbeat.mjs");
-  fs.writeFileSync(
-    hbPath,
-    `const mother = ${JSON.stringify(state.mother_url)};
-const hostId = ${JSON.stringify(state.host_id)};
-async function beat() {
-  try {
-    await fetch(mother.replace(/\\/$/, "") + "/v1/hosts/heartbeat", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ host_id: hostId }),
-    });
-  } catch {}
-}
-setInterval(beat, 60000);
-beat();
-`
-  );
-  const child = spawn(process.execPath, [hbPath], {
-    detached: true,
-    stdio: "ignore",
-  });
-  child.unref();
 }
 
 async function showStatus() {
