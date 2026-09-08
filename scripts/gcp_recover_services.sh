@@ -6,9 +6,23 @@ ROOT="${HOME}/blitzwing"
 PY="${HOME}/venv/bin/python"
 export PYTHONPATH="$ROOT"
 
-pkill -f 'uvicorn orchestrator.app.main' || true
-pkill -f 'x402-gateway/index.ts' || true
+# pkill often leaves wedged uvicorn workers on :8002 — use kill -9 on each PID.
+for pid in $(pgrep -f 'uvicorn orchestrator.app.main' 2>/dev/null || true); do
+  kill -9 "$pid" 2>/dev/null || true
+done
+for pid in $(pgrep -f 'x402-gateway/index.ts' 2>/dev/null || true); do
+  kill -9 "$pid" 2>/dev/null || true
+done
+pkill -9 -f 'gcp_restart_orchestrator' 2>/dev/null || true
+pkill -9 -f 'gcp_recover_services' 2>/dev/null || true
 sleep 3
+
+# Clear corrupted HCS topic cache (Java object repr instead of 0.0.xxx).
+HCS_CACHE="${HOME}/.blitzwing/hcs_topic_id"
+if [[ -f "$HCS_CACHE" ]] && ! grep -qE '^0\.0\.[0-9]+$' "$HCS_CACHE"; then
+  echo "Removing invalid HCS topic cache: $(head -c 80 "$HCS_CACHE")"
+  rm -f "$HCS_CACHE"
+fi
 
 echo "=== Remaining orchestrator PIDs ==="
 pgrep -af 'orchestrator.app.main' || echo "(none)"

@@ -118,9 +118,12 @@ class HederaPayoutService:
             tx = TopicCreateTransaction().setTopicMemo("blitzwing-payouts")
             resp = tx.execute(client)
             receipt = resp.getReceipt(client)
-            topic_id = str(receipt.topicId)
-            logger.info("Created HCS topic %s", topic_id)
-            self._persist_topic_id(topic_id)
+        raw = receipt.topicId
+        topic_id = str(raw) if raw is None else getattr(raw, "toString", lambda: str(raw))()
+        if not _is_valid_topic_id(topic_id):
+            topic_id = str(raw)
+        logger.info("Created HCS topic %s", topic_id)
+        self._persist_topic_id(topic_id)
             return topic_id
         except Exception:  # noqa: BLE001
             logger.exception("Failed to create HCS topic (audit logs will be skipped)")
