@@ -14,8 +14,10 @@ from typing import List, Optional
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
-from shard_manager.inference import get_contributor_inference, warm_contributor_inference_async
 from shard_manager.heartbeat import maybe_start_from_env
+from shard_manager.http_chain import HttpChainInference
+from shard_manager.local_runner import LocalShardRunner
+from shard_manager.tensor_codec import tensor_to_payload
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -52,6 +54,14 @@ class ChatInferenceResponse(BaseModel):
     prompt_tokens: int
     completion_tokens: int
     finish_reason: str
+
+
+class PrefixRequest(BaseModel):
+    input_ids: List[int]
+
+
+class PrefixResponse(BaseModel):
+    hidden: dict
 
 
 class ShardManager:
@@ -212,6 +222,38 @@ class ShardManager:
 manager = ShardManager()
 app = FastAPI(title="Blitzwing Shard Manager", version="0.1.0")
 
+_local_runner: Optional[LocalShardRunner] = None
+_http_chain: Optional[HttpChainInference] = None
+
+
+def _petals_log_path() -> str:
+    return os.getenv(
+        "PETALS_SERVER_LOG",
+        os.getenv("CONTRIB_SHARD_LOG", str(Path.home() / ".blitzwing" / "contrib_shard.out")),
+    )
+
+
+def _get_local_runner() -> LocalShardRunner:
+    global _local_runner
+    if _local_runner is None:
+        _local_runner = LocalShardRunner(
+            manager.model,
+            manager.block_indices,
+            local_port=manager.port,
+            log_path=_petals_log_path(),
+        )
+    return _local_runner
+
+
+def _get_http_chain() -> HttpChainInference:
+    global _http_chain
+    if _http_chain is None:
+        _http_chain = HttpChainInference(
+            runner=_get_local_runner(),
+            local_block_indices=manager.block_indices,
+        )
+    return _http_chain
+
 
 @app.on_event("startup")
 def on_startup() -> None:
@@ -221,19 +263,6 @@ def on_startup() -> None:
             manager.start(bootstrap=manager.new_swarm)
         except Exception:  # noqa: BLE001
             logger.exception("Failed to auto-start Petals server")
-        # Warm Petals client + DHT in background (contributors only — mother has initial_peers empty / new_swarm).
-        if manager.initial_peers and not manager.new_swarm:
-            log_path = os.getenv(
-                "CONTRIB_SHARD_LOG",
-                str(Path.home() / ".blitzwing" / "contrib_shard.out"),
-            )
-            warm_contributor_inference_async(
-                manager.model,
-                list(manager.initial_peers),
-                local_port=manager.port,
-                log_path=log_path,
-                delay_seconds=3.0,
-            )
 
 
 @app.on_event("shutdown")
@@ -281,24 +310,40 @@ def start(body: Optional[ReloadRequest] = None) -> StatusResponse:
     return manager.status()
 
 
-@app.post("/v1/chat/completions", response_model=ChatInferenceResponse)
-def chat_completions(body: ChatInferenceRequest) -> ChatInferenceResponse:
-    """
-    Run full-model inference on this contributor over HTTP.
-    The contributor Petals client reaches mother blocks via libp2p (outbound);
-    tail blocks are served locally — no inbound libp2p from mother required.
-    """
+@app.post("/v1/chain/prefix", response_model=PrefixResponse)
+def chain_prefix(body: PrefixRequest) -> PrefixResponse:
+    """Run embeddings + this node's prefix blocks; return hidden states (HTTP chain)."""
     st = manager.status()
     if not st.running:
         raise HTTPException(status_code=503, detail="Petals server not running")
     try:
-        inf = get_contributor_inference(
-            st.model,
-            list(st.initial_peers),
-            local_port=st.port,
-            local_block_indices=st.block_indices,
+        import torch
+
+        runner = _get_local_runner()
+        input_ids = torch.tensor([body.input_ids], dtype=torch.long)
+        hidden = runner.forward_prefix(input_ids)
+        return PrefixResponse(hidden=tensor_to_payload(hidden))
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("HTTP prefix forward failed")
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@app.post("/v1/chat/completions", response_model=ChatInferenceResponse)
+def chat_completions(body: ChatInferenceRequest) -> ChatInferenceResponse:
+    """
+    HTTP-chained inference: mother prefix via HTTP, tail blocks local only.
+    No libp2p/DHT between nodes.
+    """
+    st = manager.status()
+    if not st.running:
+        raise HTTPException(status_code=503, detail="Petals server not running")
+    if not body.swarm_manifest:
+        raise HTTPException(
+            status_code=400,
+            detail="swarm_manifest required for distributed HTTP inference",
         )
-        result = inf.generate(
+    try:
+        result = _get_http_chain().generate(
             body.messages,
             max_tokens=body.max_tokens,
             temperature=body.temperature,
@@ -306,7 +351,7 @@ def chat_completions(body: ChatInferenceRequest) -> ChatInferenceResponse:
             swarm_manifest=body.swarm_manifest,
         )
     except Exception as exc:  # noqa: BLE001
-        logger.exception("Contributor HTTP inference failed")
+        logger.exception("Contributor HTTP-chained inference failed")
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     return ChatInferenceResponse(
         text=result.text,
