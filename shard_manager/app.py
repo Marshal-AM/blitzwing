@@ -231,7 +231,7 @@ def on_startup() -> None:
                 list(manager.initial_peers),
                 local_port=manager.port,
                 log_path=log_path,
-                delay_seconds=12.0,
+                delay_seconds=3.0,
             )
 
 

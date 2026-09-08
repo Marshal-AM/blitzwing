@@ -61,22 +61,42 @@ class ContributorInference:
             return None
         return f"/ip4/127.0.0.1/tcp/{port}/p2p/{matches[-1]}"
 
+    def _resolve_local_peer(self, *, timeout_seconds: float = 60.0) -> Optional[str]:
+        """Wait until the local Petals server has printed its peer id."""
+        log = self.log_path or os.getenv(
+            "CONTRIB_SHARD_LOG",
+            str(Path.home() / ".blitzwing" / "contrib_shard.out"),
+        )
+        deadline = time.time() + timeout_seconds
+        while time.time() < deadline:
+            peer = self._local_peer_from_log(log, self.local_port)
+            if peer:
+                return peer
+            time.sleep(1.0)
+        return None
+
     def _build_peers(
         self,
         initial_peers: List[str],
         local_port: int,
         log_path: Optional[str],
+        *,
+        wait_local: bool = False,
     ) -> List[str]:
-        peers = [p for p in initial_peers if p]
+        peers = [p for p in initial_peers if p and "/127.0.0.1/" not in p]
         log = log_path or os.getenv(
             "CONTRIB_SHARD_LOG",
             str(Path.home() / ".blitzwing" / "contrib_shard.out"),
         )
-        local_peer = self._local_peer_from_log(log, local_port)
+        if wait_local:
+            local_peer = self._resolve_local_peer()
+        else:
+            local_peer = self._local_peer_from_log(log, local_port)
         if local_peer and local_peer not in peers:
-            # Local first so DHT discovers our own blocks ASAP.
             peers = [local_peer] + peers
             logger.info("Added local Petals peer for tail blocks: %s", local_peer)
+        elif not local_peer:
+            logger.warning("Local Petals peer not found in %s yet", log)
         return peers
 
     def _sequence_manager(self):
@@ -103,20 +123,25 @@ class ContributorInference:
                 missing.append(idx)
         return missing
 
+    def _refresh_dht(self) -> None:
+        """Synchronous DHT refresh (must not hang forever)."""
+        sm = self._sequence_manager()
+        # Prefer direct _update — update(wait=True) can block indefinitely.
+        sm._update()
+
     def _wait_until_routable(self, *, timeout_seconds: float = 90.0) -> None:
         """Poll DHT until every block has at least one server (fast path for queries)."""
         deadline = time.time() + timeout_seconds
-        sm = self._sequence_manager()
         attempt = 0
         while time.time() < deadline:
             attempt += 1
             try:
-                sm.update(wait=True)
+                self._refresh_dht()
             except Exception as exc:  # noqa: BLE001
                 logger.warning("DHT update failed (attempt %s): %s", attempt, exc)
             missing = self._missing_blocks()
             if not missing:
-                logger.info("All %s blocks visible in DHT after %s updates", len(sm), attempt)
+                logger.info("All blocks visible in DHT after %s updates", attempt)
                 self._ready.set()
                 return
             logger.info(
@@ -135,14 +160,20 @@ class ContributorInference:
                 if not self._ready.is_set():
                     self._wait_until_routable()
                 return
-            # Refresh peers in case log was written after ctor.
+            # Wait for local server peer id before connecting — otherwise DHT never
+            # sees our own tail blocks and queries stall for minutes.
             self.initial_peers = self._build_peers(
-                [p for p in self.initial_peers if "/127.0.0.1/" not in p],
+                self.initial_peers,
                 self.local_port,
                 self.log_path,
+                wait_local=True,
             )
             if not self.initial_peers:
                 raise RuntimeError("INITIAL_PEERS empty — cannot reach mother swarm")
+            if not any("/127.0.0.1/" in p for p in self.initial_peers):
+                raise RuntimeError(
+                    "Local Petals peer missing — cannot route tail blocks without it"
+                )
             from transformers import AutoTokenizer
 
             from petals import AutoDistributedModelForCausalLM
@@ -151,7 +182,6 @@ class ContributorInference:
             self._tokenizer = AutoTokenizer.from_pretrained(self.model_name, use_fast=True)
             if self._tokenizer.pad_token is None:
                 self._tokenizer.pad_token = self._tokenizer.eos_token
-            # Fast DHT refresh + short retries; float32 is much faster on non-AVX512 CPUs.
             self._model = AutoDistributedModelForCausalLM.from_pretrained(
                 self.model_name,
                 initial_peers=self.initial_peers,
