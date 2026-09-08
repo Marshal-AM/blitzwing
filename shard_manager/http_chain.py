@@ -44,12 +44,8 @@ def resolve_mother_shard_url(manifest: dict) -> str:
             return f"http://{public_ip}:8001"
     gateway = (os.getenv("MOTHER_URL") or os.getenv("BLITZWING_MOTHER_URL") or "").strip()
     if gateway:
-        # Same host as gateway, shard manager on :8001
-        from urllib.parse import urlparse
-
-        parsed = urlparse(gateway)
-        if parsed.hostname:
-            return f"http://{parsed.hostname}:8001"
+        # Contributor reaches mother via the public gateway (:8000), not shard :8001.
+        return gateway.rstrip("/")
     raise RuntimeError("Cannot resolve mother shard_manager_url from swarm manifest")
 
 
