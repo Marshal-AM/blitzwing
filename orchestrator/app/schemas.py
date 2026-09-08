@@ -46,6 +46,7 @@ class ChatCompletionResponse(BaseModel):
     model: str
     choices: List[Choice]
     usage: Usage
+    blitzwing_payment: Optional[Dict[str, Any]] = None
 
 
 class Delta(BaseModel):
@@ -88,6 +89,8 @@ class HealthResponse(BaseModel):
     extra: Optional[Dict[str, Any]] = None
     max_layers_available: Optional[int] = None
     total_layers: Optional[int] = None
+    cost_per_layer_tinybars: Optional[int] = None
+    x402_enabled: Optional[bool] = None
 
 
 class HostJoinRequest(BaseModel):
@@ -95,6 +98,7 @@ class HostJoinRequest(BaseModel):
     layers: int
     public_ip: str
     shard_manager_url: str
+    hedera_account_id: str
 
 
 class HostJoinResponse(BaseModel):
@@ -106,6 +110,7 @@ class HostJoinResponse(BaseModel):
     donor_host_id: str
     max_layers_available: int
     total_layers: int
+    hedera_account_id: str
 
 
 class HostReadyRequest(BaseModel):
@@ -130,10 +135,12 @@ class HostPublic(BaseModel):
     status: str
     public_ip: Optional[str] = None
     last_heartbeat: int
+    hedera_account_id: Optional[str] = None
 
 
 class HostListResponse(BaseModel):
     model: str
     total_layers: int
     max_layers_available: int
+    cost_per_layer_tinybars: Optional[int] = None
     hosts: List[HostPublic]

@@ -11,11 +11,17 @@ LAYERS="${BLITZWING_LAYERS:-8}"
 SHARD_PORT="${BLITZWING_SHARD_PORT:-8011}"
 PETALS_PORT="${BLITZWING_PETALS_PORT:-31338}"
 HOST_IP="${WSL_HOST_IP:-$(hostname -I | awk '{print $1}')}"
+HEDERA_ACCOUNT_ID="${BLITZWING_HEDERA_ACCOUNT_ID:-${HEDERA_ACCOUNT_ID:-}}"
 LOG_DIR="$HOME/.blitzwing"
 mkdir -p "$LOG_DIR"
 
 echo "== contributor join =="
 echo "mother=$MOTHER_URL host_ip=$HOST_IP shard=$SHARD_PORT petals=$PETALS_PORT layers=$LAYERS"
+
+if [[ -z "$HEDERA_ACCOUNT_ID" || ! "$HEDERA_ACCOUNT_ID" =~ ^0\.0\.[0-9]+$ ]]; then
+  echo "Set BLITZWING_HEDERA_ACCOUNT_ID (or HEDERA_ACCOUNT_ID) to a Hedera account like 0.0.123456"
+  exit 1
+fi
 
 # Ensure mother is up before join
 for i in $(seq 1 30); do
@@ -28,7 +34,7 @@ curl -sf "http://127.0.0.1:8001/status" | grep -qE '"running":\s*true' || {
 
 ASSIGNMENT=$(curl -sf -X POST "$MOTHER_URL/v1/hosts/join" \
   -H "Content-Type: application/json" \
-  -d "{\"model\":\"TinyLlama/TinyLlama-1.1B-Chat-v1.0\",\"layers\":$LAYERS,\"public_ip\":\"$HOST_IP\",\"shard_manager_url\":\"http://$HOST_IP:$SHARD_PORT\"}")
+  -d "{\"model\":\"TinyLlama/TinyLlama-1.1B-Chat-v1.0\",\"layers\":$LAYERS,\"public_ip\":\"$HOST_IP\",\"shard_manager_url\":\"http://$HOST_IP:$SHARD_PORT\",\"hedera_account_id\":\"$HEDERA_ACCOUNT_ID\"}")
 
 HOST_ID=$(python3 -c "import json,sys; d=json.load(sys.stdin); print(d['host_id'])" <<<"$ASSIGNMENT")
 BLOCKS=$(python3 -c "import json,sys; d=json.load(sys.stdin); print(d['block_indices'])" <<<"$ASSIGNMENT")

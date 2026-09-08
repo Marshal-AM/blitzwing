@@ -48,6 +48,12 @@ const { python: venvPy } = ensureVenvAndPetals({ onLog: (m) => console.log(m) })
 // Always run shard manager + Petals from the venv (BLITZWING_PYTHON may be a bare "python" on PATH).
 const py = venvPy;
 
+const hederaAccountId = process.env.BLITZWING_HEDERA_ACCOUNT_ID || process.env.HEDERA_ACCOUNT_ID;
+if (!hederaAccountId || !/^0\.0\.\d+$/.test(hederaAccountId)) {
+  console.error("Set BLITZWING_HEDERA_ACCOUNT_ID (or HEDERA_ACCOUNT_ID) to a Hedera account like 0.0.123456");
+  process.exit(1);
+}
+
 const shardManagerUrl = `http://${winHostIp}:${SHARD_PORT}`;
 console.log("Joining swarm…");
 const assignment = await joinHost(selected.mother_url, {
@@ -55,6 +61,7 @@ const assignment = await joinHost(selected.mother_url, {
   layers,
   public_ip: winHostIp,
   shard_manager_url: shardManagerUrl,
+  hedera_account_id: hederaAccountId,
 });
 console.log(`Assigned ${assignment.block_indices} host_id=${assignment.host_id}`);
 
@@ -88,6 +95,7 @@ saveState({
   shard_manager_url: shardManagerUrl,
   shard_pid: pid,
   discovery_url: discoveryUrl,
+  hedera_account_id: hederaAccountId,
   joined_at: new Date().toISOString(),
 });
 

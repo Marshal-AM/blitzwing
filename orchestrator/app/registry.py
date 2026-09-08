@@ -23,6 +23,14 @@ def format_range(start: int, end: int) -> str:
     return f"{start}:{end}"
 
 
+def validate_hedera_account_id(account_id: str) -> str:
+    value = (account_id or "").strip()
+    parts = value.split(".")
+    if len(parts) != 3 or parts[0] != "0" or parts[1] != "0" or not parts[2].isdigit():
+        raise ValueError("hedera_account_id must look like 0.0.123456")
+    return value
+
+
 @dataclass
 class HostRecord:
     host_id: str
@@ -39,16 +47,26 @@ class HostRecord:
     pending_range: Optional[str] = None
     donor_host_id: Optional[str] = None
     donor_shrink_to: Optional[str] = None
+    hedera_account_id: Optional[str] = None
 
 
 class SwarmRegistry:
-    def __init__(self, model: str, total_layers: int, mother_shard_manager_url: str) -> None:
+    def __init__(
+        self,
+        model: str,
+        total_layers: int,
+        mother_shard_manager_url: str,
+        mother_hedera_account_id: Optional[str] = None,
+    ) -> None:
         self.model = model
         self.total_layers = total_layers
         self._lock = threading.RLock()
         self.hosts: Dict[str, HostRecord] = {}
         self.bootstrap_peers: List[str] = []
         mother_id = "mother"
+        mother_wallet = None
+        if mother_hedera_account_id:
+            mother_wallet = validate_hedera_account_id(mother_hedera_account_id)
         self.hosts[mother_id] = HostRecord(
             host_id=mother_id,
             role="mother",
@@ -58,6 +76,7 @@ class SwarmRegistry:
             public_ip=None,
             shard_manager_url=mother_shard_manager_url.rstrip("/"),
             status="online",
+            hedera_account_id=mother_wallet,
         )
 
     def set_bootstrap_peers(self, peers: List[str]) -> None:
@@ -67,6 +86,15 @@ class SwarmRegistry:
     def list_hosts(self) -> List[HostRecord]:
         with self._lock:
             return list(self.hosts.values())
+
+    def online_payout_hosts(self) -> List[HostRecord]:
+        """Online hosts that have a Hedera payout wallet and at least one layer."""
+        with self._lock:
+            return [
+                h
+                for h in self.hosts.values()
+                if h.status == "online" and h.hedera_account_id and h.layers_hosted > 0
+            ]
 
     def max_carveable(self) -> int:
         donor = self._largest_donor_locked()
@@ -87,12 +115,14 @@ class SwarmRegistry:
         layers: int,
         public_ip: str,
         shard_manager_url: str,
+        hedera_account_id: str,
     ) -> dict:
         with self._lock:
             if layers < 1:
                 raise ValueError("layers must be >= 1")
             if layers >= self.total_layers:
                 raise ValueError(f"layers must be <= {self.total_layers - 1}")
+            wallet = validate_hedera_account_id(hedera_account_id)
 
             donor = self._largest_donor_locked()
             if not donor:
@@ -125,6 +155,7 @@ class SwarmRegistry:
                 pending_range=assigned,
                 donor_host_id=donor.host_id,
                 donor_shrink_to=shrink_to,
+                hedera_account_id=wallet,
             )
             self.hosts[host_id] = record
 
@@ -137,6 +168,7 @@ class SwarmRegistry:
                 "donor_host_id": donor.host_id,
                 "max_layers_available": max_take,
                 "total_layers": self.total_layers,
+                "hedera_account_id": wallet,
             }
 
     def mark_ready(self, host_id: str, peer_multiaddr: Optional[str] = None) -> HostRecord:
@@ -283,9 +315,19 @@ class SwarmRegistry:
 _registry: Optional[SwarmRegistry] = None
 
 
-def init_registry(model: str, total_layers: int, mother_shard_manager_url: str) -> SwarmRegistry:
+def init_registry(
+    model: str,
+    total_layers: int,
+    mother_shard_manager_url: str,
+    mother_hedera_account_id: Optional[str] = None,
+) -> SwarmRegistry:
     global _registry
-    _registry = SwarmRegistry(model, total_layers, mother_shard_manager_url)
+    _registry = SwarmRegistry(
+        model,
+        total_layers,
+        mother_shard_manager_url,
+        mother_hedera_account_id=mother_hedera_account_id,
+    )
     return _registry
 
 

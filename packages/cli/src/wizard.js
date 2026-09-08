@@ -142,8 +142,22 @@ async function wizard(args) {
     process.exit(0);
   }
 
+  const hederaAccount = await p.text({
+    message: "Hedera account ID for layer payouts (e.g. 0.0.123456)",
+    initialValue: process.env.BLITZWING_HEDERA_ACCOUNT_ID || "",
+    validate(v) {
+      const s = String(v || "").trim();
+      if (!/^0\.0\.\d+$/.test(s)) return "Enter a Hedera account like 0.0.123456";
+    },
+  });
+  if (p.isCancel(hederaAccount)) {
+    p.cancel("Setup cancelled");
+    process.exit(0);
+  }
+  const hederaAccountId = String(hederaAccount).trim();
+
   const confirm = await p.confirm({
-    message: `Join ${selected.model} hosting ${layersN} layers from ${String(publicIp).trim()}?`,
+    message: `Join ${selected.model} hosting ${layersN} layers from ${String(publicIp).trim()} paying to ${hederaAccountId}?`,
     initialValue: true,
   });
   if (p.isCancel(confirm) || !confirm) {
@@ -176,6 +190,7 @@ async function wizard(args) {
       layers: layersN,
       public_ip: String(publicIp).trim(),
       shard_manager_url: shardManagerUrl,
+      hedera_account_id: hederaAccountId,
     });
   } catch (err) {
     spin.stop("Join rejected");
@@ -230,6 +245,7 @@ async function wizard(args) {
     shard_manager_url: shardManagerUrl,
     shard_pid: pid,
     discovery_url: args.discoveryUrl,
+    hedera_account_id: hederaAccountId,
     joined_at: new Date().toISOString(),
   };
   saveState(state);
