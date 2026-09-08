@@ -43,6 +43,7 @@ class Settings:
     mother_shard_manager_url: str = "http://127.0.0.1:8001"
     heartbeat_ttl_seconds: int = 180
     ready_verify_timeout_seconds: int = 120
+    skip_ready_verify: bool = False
     inference_timeout_seconds: int = 90
     petals_use_auto_relay: bool = True
     # x402 / Hedera payouts
@@ -83,6 +84,7 @@ class Settings:
             ready_verify_timeout_seconds=int(
                 os.getenv("READY_VERIFY_TIMEOUT_SECONDS", str(cls.ready_verify_timeout_seconds))
             ),
+            skip_ready_verify=_truthy(os.getenv("SKIP_READY_VERIFY"), default=False),
             inference_timeout_seconds=int(
                 os.getenv("INFERENCE_TIMEOUT_SECONDS", str(cls.inference_timeout_seconds))
             ),

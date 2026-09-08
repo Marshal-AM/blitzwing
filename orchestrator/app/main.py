@@ -242,12 +242,15 @@ async def hosts_ready(body: HostReadyRequest) -> dict:
                 "hedera_account_id": pending.hedera_account_id,
             }
         block_range = pending.pending_range or pending.block_indices
-        await asyncio.to_thread(
-            verify_blocks_visible,
-            engine,
-            block_range,
-            timeout_seconds=settings.ready_verify_timeout_seconds,
-        )
+        if not settings.skip_ready_verify:
+            await asyncio.to_thread(
+                verify_blocks_visible,
+                engine,
+                block_range,
+                timeout_seconds=settings.ready_verify_timeout_seconds,
+            )
+        else:
+            logger.warning("SKIP_READY_VERIFY=1 — accepting handoff without DHT check")
         host = await asyncio.to_thread(registry.mark_ready, body.host_id, body.peer_multiaddr)
         await asyncio.to_thread(get_engine().reload)
         logger.info("Petals client reloaded after handoff for %s", body.host_id)
