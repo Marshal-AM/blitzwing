@@ -137,7 +137,8 @@ blitzwing status
 blitzwing leave
 ```
 
-Open TCP `31337` and `8001` on contributor firewalls so the mother can reach their shard-manager `/reload` and Petals P2P.
+Open TCP `31337` and `8001` on contributor firewalls so the mother can reach their shard-manager `/reload` and Petals P2P.  
+See [contributor-setup.md](contributor-setup.md) for relay vs public-IP paths and `scripts/gcp_contributor_join.sh` for a second GCP VM.
 
 ---
 

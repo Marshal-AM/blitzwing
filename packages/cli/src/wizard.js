@@ -5,7 +5,12 @@ import path from "node:path";
 import { spawn } from "node:child_process";
 import { DEFAULT_DISCOVERY_URL, HOME_DIR, SHARD_PORT, PETALS_PORT } from "./config.js";
 import { listMothers, motherHosts, joinHost, readyHost, leaveHost } from "./api.js";
-import { detectPublicIp } from "./net.js";
+import {
+  detectPublicIp,
+  detectLocalIp,
+  discoverNgrokTcpAnnounce,
+  extractPeerMultiaddrFromLog,
+} from "./net.js";
 import {
   ensureVenvAndPetals,
   startShardManagerProcess,
@@ -55,6 +60,9 @@ ${color.bold("blitzwing")} — join a Blitzwing mother swarm as a compute node
 
 Env:
   BLITZWING_DISCOVERY_URL   Override discovery service (default ${DEFAULT_DISCOVERY_URL})
+  BLITZWING_ANNOUNCE_MADDRS Explicit Petals announce multiaddr (VM with public IP)
+  BLITZWING_LOCAL_IP        Local IP for shard manager metadata
+  PETALS_USE_AUTO_RELAY=0   Disable libp2p auto-relay (use with public IP / port-forward)
 `);
 }
 
@@ -130,17 +138,69 @@ async function wizard(args) {
   const layersN = Number(layers);
 
   const detected = await detectPublicIp();
-  const publicIp = await p.text({
-    message: "Public IP for this machine (other peers must reach you)",
-    initialValue: detected || "",
-    validate(v) {
-      if (!v || !v.trim()) return "Public IP is required";
-    },
+  const networkMode = await p.select({
+    message: "How will other peers reach your Petals node?",
+    options: [
+      {
+        value: "relay",
+        label: "Auto (recommended for home / NAT)",
+        hint: "Uses Petals libp2p relay — no port forwarding",
+      },
+      {
+        value: "public",
+        label: "Public IP / cloud VM",
+        hint: "TCP 31337 (and 8001) open on the internet",
+      },
+      {
+        value: "ngrok",
+        label: "Dev tunnel (ngrok TCP on :4040)",
+        hint: "Only if ngrok is already running",
+      },
+    ],
+    initialValue: "relay",
   });
-  if (p.isCancel(publicIp)) {
+  if (p.isCancel(networkMode)) {
     p.cancel("Setup cancelled");
     process.exit(0);
   }
+
+  let publicIp = "";
+  let announceMaddrs = "";
+  let useAutoRelay = "1";
+
+  if (networkMode === "public") {
+    publicIp = await p.text({
+      message: "Public IPv4 (must be reachable on TCP " + PETALS_PORT + ")",
+      initialValue: detected || "",
+      validate(v) {
+        if (!v || !/^\d+\.\d+\.\d+\.\d+$/.test(String(v).trim())) {
+          return "Enter a valid public IPv4 address";
+        }
+      },
+    });
+    if (p.isCancel(publicIp)) {
+      p.cancel("Setup cancelled");
+      process.exit(0);
+    }
+    publicIp = String(publicIp).trim();
+    announceMaddrs = `/ip4/${publicIp}/tcp/${PETALS_PORT}`;
+    useAutoRelay = "0";
+  } else if (networkMode === "ngrok") {
+    const ngrok = await discoverNgrokTcpAnnounce(PETALS_PORT);
+    if (!ngrok) {
+      p.cancel("No ngrok TCP tunnel on http://127.0.0.1:4040. Start: ngrok tcp " + PETALS_PORT);
+      process.exit(1);
+    }
+    announceMaddrs = ngrok;
+    publicIp = ngrok.match(/dns4\/([^/]+)/)?.[1] || detected || "relay";
+    useAutoRelay = "0";
+    p.log.info(`Using ngrok announce ${announceMaddrs}`);
+  } else {
+    publicIp = detected || "relay";
+    p.log.info("Using Petals libp2p auto-relay (no inbound port forward required).");
+  }
+
+  const localIp = await detectLocalIp();
 
   const hederaAccount = await p.text({
     message: "Hedera account ID for layer payouts (e.g. 0.0.123456)",
@@ -157,7 +217,7 @@ async function wizard(args) {
   const hederaAccountId = String(hederaAccount).trim();
 
   const confirm = await p.confirm({
-    message: `Join ${selected.model} hosting ${layersN} layers from ${String(publicIp).trim()} paying to ${hederaAccountId}?`,
+    message: `Join ${selected.model} hosting ${layersN} layers (${networkMode}) paying to ${hederaAccountId}?`,
     initialValue: true,
   });
   if (p.isCancel(confirm) || !confirm) {
@@ -180,7 +240,8 @@ async function wizard(args) {
   const python = venvPython();
   spin.stop("Environment ready");
 
-  const shardManagerUrl = `http://${String(publicIp).trim()}:${SHARD_PORT}`;
+  const shardManagerUrl = `http://${localIp}:${SHARD_PORT}`;
+  const petalsLogPath = path.join(HOME_DIR, "petals.log");
 
   spin.start("Requesting layer assignment from mother…");
   let assignment;
@@ -202,22 +263,28 @@ async function wizard(args) {
 
   const logPath = path.join(HOME_DIR, "shard_manager.log");
   spin.start("Starting local Petals server…");
-  const { pid } = startShardManagerProcess({
-    python,
-    logPath,
-    env: {
+  const shardEnv = {
       MODEL_NAME: selected.model,
-      PUBLIC_IP: String(publicIp).trim(),
+      PUBLIC_IP: announceMaddrs ? "" : String(publicIp).trim(),
       BLOCK_INDICES: assignment.block_indices,
       INITIAL_PEERS: (assignment.initial_peers || []).join(","),
       PETALS_PORT: String(PETALS_PORT),
       IDENTITY_PATH: path.join(HOME_DIR, "petals-identity"),
       SHARD_AUTO_START: "1",
-    },
+      PETALS_USE_AUTO_RELAY: useAutoRelay,
+      PETALS_SKIP_REACHABILITY_CHECK: "1",
+    };
+  if (announceMaddrs) {
+    shardEnv.ANNOUNCE_MADDRS = announceMaddrs;
+  }
+  const { pid } = startShardManagerProcess({
+    python,
+    logPath,
+    env: shardEnv,
   });
 
   try {
-    await waitForShardRunning({ timeoutMs: 600000, statusHost: String(publicIp).trim() });
+    await waitForShardRunning({ timeoutMs: 600000, statusHost: "127.0.0.1" });
   } catch (err) {
     spin.stop("Petals did not become ready");
     p.cancel(`${err.message}. See ${logPath}`);
@@ -226,8 +293,12 @@ async function wizard(args) {
   spin.stop("Petals is serving your layers");
 
   spin.start("Finalizing handoff with mother…");
+  const peerMultiaddr = extractPeerMultiaddrFromLog(petalsLogPath, fs);
   try {
-    await readyHost(selected.mother_url, { host_id: assignment.host_id });
+    await readyHost(selected.mother_url, {
+      host_id: assignment.host_id,
+      peer_multiaddr: peerMultiaddr || undefined,
+    });
   } catch (err) {
     spin.stop("Handoff failed");
     p.cancel(err.message);
@@ -242,6 +313,8 @@ async function wizard(args) {
     block_indices: assignment.block_indices,
     layers_hosted: assignment.layers_hosted,
     public_ip: String(publicIp).trim(),
+    network_mode: networkMode,
+    announce_maddrs: announceMaddrs || null,
     shard_manager_url: shardManagerUrl,
     shard_pid: pid,
     discovery_url: args.discoveryUrl,
@@ -297,7 +370,7 @@ async function showStatus() {
   console.log(`  mother:         ${state.mother_url}`);
   console.log(`  public_ip:      ${state.public_ip}`);
   try {
-    const statusHost = state.public_ip || "127.0.0.1";
+    const statusHost = "127.0.0.1";
     const res = await fetch(`http://${statusHost}:${SHARD_PORT}/status`);
     if (res.ok) {
       const st = await res.json();
@@ -325,7 +398,7 @@ async function doLeave() {
     p.log.warn(`Mother leave call failed: ${err.message}`);
   }
   try {
-    const statusHost = state.public_ip || "127.0.0.1";
+    const statusHost = "127.0.0.1";
     await fetch(`http://${statusHost}:${SHARD_PORT}/stop`, { method: "POST" });
   } catch {
     /* ignore */

@@ -5,8 +5,7 @@
  *   @x402/core  — x402ResourceServer + x402HTTPResourceServer
  *   @x402/hedera — ExactHederaScheme (exact / HBAR)
  *
- * Flow: processHTTPRequest → processSettlement → proxy to FastAPI
- * (inference + layer-weighted HBAR redistribution + HCS).
+ * Flow: verify → proxy inference → settle on success → internal payout
  */
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -30,7 +29,12 @@ const DEFAULT_FACILITATOR_URL = "http://127.0.0.1:8791";
 const facilitatorUrl = (
   process.env.FACILITATOR_URL || DEFAULT_FACILITATOR_URL
 ).replace(/\/$/, "");
-const payTo = (process.env.MOTHER_ACCOUNT_ID || "").trim();
+const payTo = (
+  process.env.ESCROW_CONTRACT_ID ||
+  process.env.ESCROW_ACCOUNT_ID ||
+  process.env.MOTHER_ACCOUNT_ID ||
+  ""
+).trim();
 const upstream = (
   process.env.ORCHESTRATOR_INTERNAL_URL || "http://127.0.0.1:8002"
 ).replace(/\/$/, "");
@@ -43,7 +47,9 @@ const x402Enabled = !["0", "false", "False"].includes(
 );
 
 if (x402Enabled && !/^0\.0\.\d+$/.test(payTo)) {
-  console.error("X402_ENABLED requires MOTHER_ACCOUNT_ID (0.0.xxx) as payTo");
+  console.error(
+    "X402_ENABLED requires MOTHER_ACCOUNT_ID or ESCROW_CONTRACT_ID (0.0.xxx) as payTo",
+  );
   process.exit(1);
 }
 if (x402Enabled && !(costPerLayer > 0)) {
@@ -179,6 +185,29 @@ async function createApp(): Promise<Hono> {
       }
 
       if (result.type === "payment-verified") {
+        const forwardHeaders = new Headers();
+        const ct = c.req.header("content-type");
+        if (ct) forwardHeaders.set("content-type", ct);
+        else forwardHeaders.set("content-type", "application/json");
+        forwardHeaders.set("X-Blitzwing-Paid", "verified");
+
+        const up = await proxyUpstream(reqPath, {
+          method: "POST",
+          headers: forwardHeaders,
+          body: bodyBuf,
+        });
+        const upBody = await up.arrayBuffer();
+        const upText = new TextDecoder().decode(upBody);
+
+        if (!up.ok) {
+          return new Response(upBody, {
+            status: up.status,
+            headers: {
+              "content-type": up.headers.get("content-type") || "application/json",
+            },
+          });
+        }
+
         const settle = await httpServer.processSettlement(
           result.paymentPayload,
           result.paymentRequirements,
@@ -193,6 +222,7 @@ async function createApp(): Promise<Hono> {
               error: "settlement_failed",
               errorReason: settle.errorReason,
               errorMessage: settle.errorMessage,
+              detail: "Inference succeeded but payment settlement failed",
             }),
             {
               status: 402,
@@ -201,30 +231,59 @@ async function createApp(): Promise<Hono> {
           );
         }
 
-        const forwardHeaders = new Headers();
-        const ct = c.req.header("content-type");
-        if (ct) forwardHeaders.set("content-type", ct);
-        else forwardHeaders.set("content-type", "application/json");
-        forwardHeaders.set("X-Blitzwing-Paid", "1");
-        if (settle.transaction) {
-          forwardHeaders.set(
-            "X-Blitzwing-X402-Tx-Id",
-            String(settle.transaction),
-          );
+        let responseBody: unknown = upText;
+        try {
+          responseBody = upText ? JSON.parse(upText) : null;
+        } catch {
+          /* keep raw */
         }
 
-        const up = await proxyUpstream(reqPath, {
-          method: "POST",
-          headers: forwardHeaders,
-          body: bodyBuf,
-        });
-        const upBody = await up.arrayBuffer();
+        const completionId =
+          responseBody &&
+          typeof responseBody === "object" &&
+          "id" in responseBody &&
+          typeof (responseBody as { id: unknown }).id === "string"
+            ? (responseBody as { id: string }).id
+            : null;
+
+        if (completionId && settle.transaction) {
+          try {
+            const payoutRes = await fetch(`${upstream}/v1/internal/payout`, {
+              method: "POST",
+              headers: {
+                "content-type": "application/json",
+                "X-Blitzwing-Paid": "1",
+                "X-Blitzwing-X402-Tx-Id": String(settle.transaction),
+              },
+              body: JSON.stringify({ request_id: completionId }),
+            });
+            if (payoutRes.ok) {
+              const payoutJson = await payoutRes.json();
+              if (responseBody && typeof responseBody === "object") {
+                (responseBody as Record<string, unknown>).blitzwing_payment =
+                  payoutJson;
+              }
+            } else {
+              console.error(
+                "Payout after settle failed:",
+                payoutRes.status,
+                await payoutRes.text(),
+              );
+            }
+          } catch (err) {
+            console.error("Payout request failed:", err);
+          }
+        }
+
         const outHeaders: Record<string, string> = {
-          "content-type":
-            up.headers.get("content-type") || "application/json",
+          "content-type": up.headers.get("content-type") || "application/json",
           ...settleHeaders,
         };
-        return new Response(upBody, { status: up.status, headers: outHeaders });
+        const finalBody =
+          typeof responseBody === "string"
+            ? responseBody
+            : JSON.stringify(responseBody ?? {});
+        return new Response(finalBody, { status: up.status, headers: outHeaders });
       }
 
       // Protected route must not fall through unpaid.

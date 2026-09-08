@@ -42,6 +42,8 @@ class Settings:
     total_layers: int = 22
     mother_shard_manager_url: str = "http://127.0.0.1:8001"
     heartbeat_ttl_seconds: int = 180
+    ready_verify_timeout_seconds: int = 120
+    inference_timeout_seconds: int = 90
     # x402 / Hedera payouts
     x402_enabled: bool = False
     cost_per_layer_tinybars: int = 0
@@ -50,6 +52,9 @@ class Settings:
     facilitator_url: str = "http://127.0.0.1:8791"
     hedera_network: str = "hedera-testnet"
     hcs_topic_id: Optional[str] = None
+    escrow_contract_id: Optional[str] = None
+    escrow_evm_address: Optional[str] = None
+    escrow_operator_private_key: Optional[str] = None
 
     @property
     def request_price_tinybars(self) -> int:
@@ -74,6 +79,12 @@ class Settings:
                 "MOTHER_SHARD_MANAGER_URL", cls.mother_shard_manager_url
             ).rstrip("/"),
             heartbeat_ttl_seconds=int(os.getenv("HEARTBEAT_TTL_SECONDS", str(cls.heartbeat_ttl_seconds))),
+            ready_verify_timeout_seconds=int(
+                os.getenv("READY_VERIFY_TIMEOUT_SECONDS", str(cls.ready_verify_timeout_seconds))
+            ),
+            inference_timeout_seconds=int(
+                os.getenv("INFERENCE_TIMEOUT_SECONDS", str(cls.inference_timeout_seconds))
+            ),
             x402_enabled=_truthy(os.getenv("X402_ENABLED"), default=False),
             cost_per_layer_tinybars=int(cost_raw or "0"),
             mother_account_id=(os.getenv("MOTHER_ACCOUNT_ID") or None),
@@ -83,6 +94,11 @@ class Settings:
             ).rstrip("/"),
             hedera_network=os.getenv("HEDERA_NETWORK", cls.hedera_network),
             hcs_topic_id=(os.getenv("HCS_TOPIC_ID") or None),
+            escrow_contract_id=(os.getenv("ESCROW_CONTRACT_ID") or None),
+            escrow_evm_address=(os.getenv("ESCROW_EVM_ADDRESS") or None),
+            escrow_operator_private_key=(
+                os.getenv("ESCROW_OPERATOR_PRIVATE_KEY") or os.getenv("MOTHER_PRIVATE_KEY") or None
+            ),
         )
 
 

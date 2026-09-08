@@ -52,12 +52,25 @@ class ShardManager:
         announce_raw = os.getenv("ANNOUNCE_MADDRS", "")
         self.announce_maddrs = [a.strip() for a in announce_raw.split(",") if a.strip()]
         self.new_swarm = os.getenv("NEW_SWARM", "0") in ("1", "true", "True")
+        self.use_auto_relay = self._resolve_use_auto_relay()
+        self.skip_reachability_check = os.getenv(
+            "PETALS_SKIP_REACHABILITY_CHECK", "1"
+        ) in ("1", "true", "True")
         self.block_indices = os.getenv("BLOCK_INDICES", "0:22")
         self._proc: Optional[subprocess.Popen] = None
         self._lock = threading.Lock()
         self.last_exit_code: Optional[int] = None
         self._auto_start = os.getenv("SHARD_AUTO_START", "1") not in ("0", "false", "False")
         self._bootstrapped = False
+
+    def _resolve_use_auto_relay(self) -> bool:
+        """NAT contributors default to libp2p auto-relay; explicit announce disables it."""
+        raw = os.getenv("PETALS_USE_AUTO_RELAY")
+        if raw is not None:
+            return raw not in ("0", "false", "False", "no")
+        if self.announce_maddrs:
+            return False
+        return not self.new_swarm
 
     def build_cmd(self, block_indices: str, *, bootstrap: bool = False) -> List[str]:
         cmd = [
@@ -89,6 +102,10 @@ class ShardManager:
         elif self.initial_peers:
             cmd.append("--initial_peers")
             cmd.extend(self.initial_peers)
+        if not self.use_auto_relay:
+            cmd.append("--no_auto_relay")
+        if self.skip_reachability_check:
+            cmd.append("--skip_reachability_check")
         return cmd
 
     def start(self, block_indices: Optional[str] = None, *, bootstrap: bool = False) -> None:
@@ -140,14 +157,20 @@ class ShardManager:
     def reload(self, block_indices: str, initial_peers: Optional[List[str]] = None) -> None:
         if initial_peers is not None:
             self.initial_peers = initial_peers
+        # Mother swarms (NEW_SWARM=1) must re-bootstrap after stop — dialing their own
+        # public multiaddr as initial_peers fails (NAT hairpin / self-dial).
+        rebootstrap = self.new_swarm
         logger.info(
-            "Reloading Petals with block_indices=%s initial_peers=%s",
+            "Reloading Petals with block_indices=%s initial_peers=%s rebootstrap=%s",
             block_indices,
             self.initial_peers,
+            rebootstrap,
         )
         self.stop()
         time.sleep(1.0)
-        self.start(block_indices, bootstrap=False)
+        if rebootstrap:
+            self._bootstrapped = False
+        self.start(block_indices, bootstrap=rebootstrap)
 
     def status(self) -> StatusResponse:
         running = self._proc is not None and self._proc.poll() is None

@@ -1,6 +1,6 @@
 {
   "name": "blitzwing",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "description": "Interactive setup wizard to join a Blitzwing Petals mother swarm as a compute contributor",
   "bin": {
     "blitzwing": "bin/blitzwing.js"

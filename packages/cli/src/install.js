@@ -220,6 +220,7 @@ from pydantic import BaseModel, Field
 
 class ReloadRequest(BaseModel):
     block_indices: str = Field(..., pattern=r"^\\d+:\\d+$")
+    initial_peers: Optional[List[str]] = None
 
 class StatusResponse(BaseModel):
     running: bool
@@ -259,6 +260,13 @@ class Mgr:
             c += ["--public_ip", self.public_ip]
         if self.initial_peers:
             c += ["--initial_peers", *self.initial_peers]
+        use_auto_relay = os.environ.get("PETALS_USE_AUTO_RELAY", "1") not in ("0", "false", "False")
+        if not self.announce_maddrs and use_auto_relay:
+            pass
+        elif not use_auto_relay:
+            c += ["--no_auto_relay"]
+        if os.environ.get("PETALS_SKIP_REACHABILITY_CHECK", "1") in ("1", "true", "True"):
+            c += ["--skip_reachability_check"]
         return c
 
     def start(self, bi=None):
@@ -296,7 +304,9 @@ class Mgr:
             self.last_exit_code = p.returncode
             self._proc = None
 
-    def reload(self, bi):
+    def reload(self, bi, initial_peers=None):
+        if initial_peers is not None:
+            self.initial_peers = initial_peers
         self.stop(); time.sleep(1); self.start(bi)
 
     def status(self):
@@ -333,7 +343,7 @@ def status():
 def reload(body: ReloadRequest):
     a,b = map(int, body.block_indices.split(":"))
     if b <= a: raise HTTPException(400, "bad range")
-    mgr.reload(body.block_indices)
+    mgr.reload(body.block_indices, initial_peers=body.initial_peers)
     time.sleep(0.5)
     return mgr.status()
 

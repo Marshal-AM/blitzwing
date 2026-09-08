@@ -185,12 +185,15 @@ class SwarmRegistry:
             if not donor or not shrink_to:
                 raise RuntimeError("Join record missing donor shrink plan")
 
-            # Shrink donor via its shard manager (outside lock briefly)
+            # Shrink donor via its shard manager (outside lock briefly).
+            # Do not rewrite the donor's initial_peers on handoff — replacing them with
+            # bootstrap/self addrs causes Petals to fail reconnecting after reload.
             donor_url = donor.shard_manager_url
             assigned = host.pending_range or host.block_indices
-            reload_peers = [peer_multiaddr] if peer_multiaddr else list(self.bootstrap_peers)
+            if peer_multiaddr:
+                host.peer_multiaddr = peer_multiaddr
 
-        self._reload_shard_manager(donor_url, shrink_to, initial_peers=reload_peers or None)
+        self._reload_shard_manager(donor_url, shrink_to, initial_peers=None)
 
         with self._lock:
             host = self.hosts[host_id]
@@ -202,10 +205,17 @@ class SwarmRegistry:
             host.layers_hosted = parse_range(assigned)[1] - parse_range(assigned)[0]
             host.status = "online"
             host.last_heartbeat = int(time.time())
-            if peer_multiaddr:
-                host.peer_multiaddr = peer_multiaddr
             host.pending_range = None
             host.donor_shrink_to = None
+            if peer_multiaddr and peer_multiaddr not in self.bootstrap_peers:
+                self.bootstrap_peers.append(peer_multiaddr)
+            return host
+
+    def get_host(self, host_id: str) -> HostRecord:
+        with self._lock:
+            host = self.hosts.get(host_id)
+            if not host:
+                raise KeyError(host_id)
             return host
 
     def heartbeat(self, host_id: str) -> HostRecord:

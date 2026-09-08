@@ -12,7 +12,7 @@ from typing import Generator, Iterable, List, Optional, Sequence
 import torch
 from transformers import AutoTokenizer, TextIteratorStreamer
 
-from orchestrator.app.config import Settings, get_settings
+from orchestrator.app.errors import MissingBlocksServiceError
 
 logger = logging.getLogger(__name__)
 
@@ -206,16 +206,19 @@ class PetalsEngine:
                 top_p=top_p,
                 stop=stop,
             )
-        except MissingBlocksError:
+        except MissingBlocksError as exc:
             logger.warning("MissingBlocksError — reloading Petals client and retrying once")
             self.reload()
-            return self._generate_once(
-                messages,
-                max_tokens=max_tokens,
-                temperature=temperature,
-                top_p=top_p,
-                stop=stop,
-            )
+            try:
+                return self._generate_once(
+                    messages,
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                    top_p=top_p,
+                    stop=stop,
+                )
+            except MissingBlocksError as retry_exc:
+                raise MissingBlocksServiceError(message=str(retry_exc)) from retry_exc
 
     def stream_generate(
         self,
@@ -237,16 +240,19 @@ class PetalsEngine:
                 top_p=top_p,
                 stop=stop,
             )
-        except MissingBlocksError:
+        except MissingBlocksError as exc:
             logger.warning("MissingBlocksError — reloading Petals client and retrying stream once")
             self.reload()
-            yield from self._stream_generate_once(
-                messages,
-                max_tokens=max_tokens,
-                temperature=temperature,
-                top_p=top_p,
-                stop=stop,
-            )
+            try:
+                yield from self._stream_generate_once(
+                    messages,
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                    top_p=top_p,
+                    stop=stop,
+                )
+            except MissingBlocksError as retry_exc:
+                raise MissingBlocksServiceError(message=str(retry_exc)) from retry_exc
 
     def _stream_generate_once(
         self,

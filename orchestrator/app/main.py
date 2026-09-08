@@ -12,8 +12,10 @@ from fastapi.responses import StreamingResponse
 
 from orchestrator.app.config import get_settings
 from orchestrator.app.engine import get_engine, new_completion_id, now_ts
+from orchestrator.app.errors import MissingBlocksServiceError
 from orchestrator.app.hedera_payouts import get_payout_service
 from orchestrator.app.registry import get_registry, init_registry
+from orchestrator.app.swarm_verify import verify_blocks_visible
 from orchestrator.app.schemas import (
     ChatCompletionChunk,
     ChatCompletionRequest,
@@ -29,6 +31,7 @@ from orchestrator.app.schemas import (
     HostListResponse,
     HostPublic,
     HostReadyRequest,
+    InternalPayoutRequest,
     ModelCard,
     ModelList,
     StreamChoice,
@@ -207,11 +210,35 @@ async def hosts_join(body: HostJoinRequest) -> HostJoinResponse:
 
 @app.post("/v1/hosts/ready")
 async def hosts_ready(body: HostReadyRequest) -> dict:
+    settings = get_settings()
     registry = get_registry()
+    engine = get_engine()
     try:
+        pending = await asyncio.to_thread(registry.get_host, body.host_id)
+        if pending.status == "online":
+            return {
+                "host_id": pending.host_id,
+                "status": pending.status,
+                "block_indices": pending.block_indices,
+                "layers_hosted": pending.layers_hosted,
+                "hedera_account_id": pending.hedera_account_id,
+            }
+        block_range = pending.pending_range or pending.block_indices
+        await asyncio.to_thread(
+            verify_blocks_visible,
+            engine,
+            block_range,
+            timeout_seconds=settings.ready_verify_timeout_seconds,
+        )
         host = await asyncio.to_thread(registry.mark_ready, body.host_id, body.peer_multiaddr)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        try:
+            await asyncio.to_thread(registry.leave, body.host_id)
+        except Exception:  # noqa: BLE001
+            logger.exception("Failed to release pending host %s after verify failure", body.host_id)
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     except Exception as exc:  # noqa: BLE001
         logger.exception("ready/handoff failed")
         raise HTTPException(status_code=500, detail=str(exc)) from exc
@@ -222,6 +249,26 @@ async def hosts_ready(body: HostReadyRequest) -> dict:
         "layers_hosted": host.layers_hosted,
         "hedera_account_id": host.hedera_account_id,
     }
+
+
+@app.post("/v1/internal/payout")
+async def internal_payout(
+    body: InternalPayoutRequest,
+    x402_tx_id: Optional[str] = Header(default=None, alias="X-Blitzwing-X402-Tx-Id"),
+    blitzwing_paid: Optional[str] = Header(default=None, alias="X-Blitzwing-Paid"),
+) -> dict:
+    """Called by x402 gateway after settlement to redistribute HBAR to hosts."""
+    settings = get_settings()
+    if settings.x402_enabled and blitzwing_paid != "1":
+        raise HTTPException(status_code=403, detail="Settlement required before payout")
+    try:
+        receipt = await asyncio.to_thread(_run_payout, body.request_id, x402_tx_id)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Internal payout failed")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    if receipt is None:
+        raise HTTPException(status_code=503, detail="Payout service disabled or misconfigured")
+    return receipt
 
 
 @app.post("/v1/hosts/heartbeat")
@@ -296,7 +343,7 @@ async def chat_completions(
     The gateway forwards X-Blitzwing-Paid=1 and X-Blitzwing-X402-Tx-Id after settlement.
     """
     settings = get_settings()
-    if settings.x402_enabled and blitzwing_paid != "1":
+    if settings.x402_enabled and blitzwing_paid not in ("1", "verified"):
         raise HTTPException(
             status_code=403,
             detail=(
@@ -304,6 +351,7 @@ async def chat_completions(
                 "(packages/x402-gateway); do not hit the internal orchestrator directly."
             ),
         )
+    run_payout = settings.x402_enabled and blitzwing_paid == "1"
     await _ensure_model_or_400(request)
     engine = get_engine()
     completion_id = new_completion_id()
@@ -322,7 +370,8 @@ async def chat_completions(
             ):
                 yield chunk
             try:
-                await asyncio.to_thread(_run_payout, completion_id, x402_tx_id)
+                if run_payout:
+                    await asyncio.to_thread(_run_payout, completion_id, x402_tx_id)
             except Exception:  # noqa: BLE001
                 logger.exception("Post-stream payout failed")
 
@@ -334,14 +383,27 @@ async def chat_completions(
         return StreamingResponse(_paid_stream(), media_type="text/event-stream", headers=headers)
 
     try:
-        result = await asyncio.to_thread(
-            engine.generate,
-            messages,
-            max_tokens=request.max_tokens,
-            temperature=request.temperature,
-            top_p=request.top_p,
-            stop=request.stop,
+        result = await asyncio.wait_for(
+            asyncio.to_thread(
+                engine.generate,
+                messages,
+                max_tokens=request.max_tokens,
+                temperature=request.temperature,
+                top_p=request.top_p,
+                stop=request.stop,
+            ),
+            timeout=settings.inference_timeout_seconds,
         )
+    except asyncio.TimeoutError:
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                f"Inference timed out after {settings.inference_timeout_seconds}s. "
+                "Swarm blocks may be unreachable."
+            ),
+        ) from None
+    except MissingBlocksServiceError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except Exception as exc:  # noqa: BLE001
@@ -349,10 +411,11 @@ async def chat_completions(
         raise HTTPException(status_code=500, detail=f"Generation failed: {exc}") from exc
 
     payment_receipt = None
-    try:
-        payment_receipt = await asyncio.to_thread(_run_payout, completion_id, x402_tx_id)
-    except Exception:  # noqa: BLE001
-        logger.exception("Host redistribution failed after successful inference")
+    if run_payout:
+        try:
+            payment_receipt = await asyncio.to_thread(_run_payout, completion_id, x402_tx_id)
+        except Exception:  # noqa: BLE001
+            logger.exception("Host redistribution failed after successful inference")
 
     return ChatCompletionResponse(
         id=completion_id,

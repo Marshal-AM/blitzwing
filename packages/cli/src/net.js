@@ -24,6 +24,59 @@ export async function detectPublicIp() {
   return "";
 }
 
+/** Local LAN/WSL IP for shard_manager_url metadata (not Petals announce). */
+export async function detectLocalIp() {
+  if (process.env.BLITZWING_LOCAL_IP) {
+    return process.env.BLITZWING_LOCAL_IP.trim();
+  }
+  try {
+    const { networkInterfaces } = await import("node:os");
+    const nets = networkInterfaces();
+    for (const name of Object.keys(nets)) {
+      for (const net of nets[name] || []) {
+        if (net.family === "IPv4" && !net.internal) {
+          return net.address;
+        }
+      }
+    }
+  } catch {
+    /* ignore */
+  }
+  return "127.0.0.1";
+}
+
+/** Optional ngrok TCP tunnel for dev; production should use VM public IP or auto-relay. */
+export async function discoverNgrokTcpAnnounce(petalsPort) {
+  const override = process.env.BLITZWING_ANNOUNCE_MADDRS?.trim();
+  if (override) return override;
+
+  try {
+    const res = await fetch("http://127.0.0.1:4040/api/tunnels", {
+      signal: AbortSignal.timeout(2000),
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    const tunnel = (data.tunnels || []).find((t) => t.proto === "tcp");
+    if (!tunnel?.public_url) return null;
+    const url = new URL(tunnel.public_url);
+    return `/dns4/${url.hostname}/tcp/${url.port || petalsPort}`;
+  } catch {
+    return null;
+  }
+}
+
+export function extractPeerMultiaddrFromLog(logPath, fs) {
+  if (!fs.existsSync(logPath)) return null;
+  const text = fs.readFileSync(logPath, "utf8");
+  const line = text
+    .split("\n")
+    .reverse()
+    .find((l) => l.includes("Running a server on"));
+  if (!line) return null;
+  const m = line.match(/Running a server on \['([^']+)'\]/);
+  return m ? m[1] : null;
+}
+
 export function which(cmd) {
   try {
     const out = execFileSync(process.platform === "win32" ? "where" : "which", [cmd], {

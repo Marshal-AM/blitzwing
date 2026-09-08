@@ -135,6 +135,45 @@ class HederaPayoutService:
         hosts: List[HostRecord],
         x402_tx_id: Optional[str] = None,
     ) -> PayoutReceipt:
+        from orchestrator.app.hedera_escrow import get_escrow_service
+
+        escrow_svc = get_escrow_service(self.settings)
+        if escrow_svc.enabled:
+            escrow_out = escrow_svc.release(
+                request_id, hosts, int(self.settings.cost_per_layer_tinybars)
+            )
+            if escrow_out:
+                topic_id = self.ensure_hcs_topic()
+                hcs_seq: Optional[str] = None
+                if topic_id:
+                    from hedera import TopicId, TopicMessageSubmitTransaction
+
+                    client = self._ensure_client()
+                    payload = {
+                        "requestId": request_id,
+                        "x402TxId": x402_tx_id,
+                        "payoutTxId": escrow_out.get("payout_tx_id"),
+                        "escrowContractId": escrow_out.get("escrow_contract_id"),
+                        "costPerLayerTinybars": self.settings.cost_per_layer_tinybars,
+                        "hosts": escrow_out.get("hosts", []),
+                    }
+                    msg = TopicMessageSubmitTransaction().setTopicId(
+                        TopicId.fromString(topic_id)
+                    ).setMessage(json.dumps(payload, separators=(",", ":")))
+                    msg_resp = msg.execute(client)
+                    msg_receipt = msg_resp.getReceipt(client)
+                    hcs_seq = str(getattr(msg_receipt, "topicSequenceNumber", None))
+                return PayoutReceipt(
+                    request_id=request_id,
+                    x402_tx_id=x402_tx_id,
+                    payout_tx_id=escrow_out.get("payout_tx_id"),
+                    hcs_topic_id=topic_id,
+                    hcs_sequence=hcs_seq,
+                    cost_per_layer_tinybars=self.settings.cost_per_layer_tinybars,
+                    total_tinybars=int(escrow_out.get("total_tinybars", 0)),
+                    hosts=escrow_out.get("hosts", []),
+                )
+
         if not self.enabled:
             return PayoutReceipt(
                 request_id=request_id,

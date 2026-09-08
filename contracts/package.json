@@ -1,0 +1,11 @@
+{
+  "name": "blitzwing-contracts",
+  "private": true,
+  "devDependencies": {
+    "hardhat": "^2.22.0"
+  },
+  "scripts": {
+    "compile": "hardhat compile",
+    "deploy:testnet": "hardhat run scripts/deploy.js --network hedera_testnet"
+  }
+}

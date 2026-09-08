@@ -94,7 +94,16 @@ async function main(): Promise<void> {
     network: HEDERA_TESTNET,
   });
   const x402 = new x402HTTPClient(
-    new x402Client().register(HEDERA_TESTNET, new ExactHederaScheme(signer)),
+    x402Client.fromConfig({
+      schemes: [
+        {
+          network: HEDERA_TESTNET,
+          client: new ExactHederaScheme(signer),
+        },
+      ],
+      // HBAR is not in the default EVM/SVM asset list; disable for Hedera Exact.
+      spendControls: false,
+    }),
   );
 
   const res = await payOnce(x402, url, {

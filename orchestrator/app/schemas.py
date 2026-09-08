@@ -118,6 +118,10 @@ class HostReadyRequest(BaseModel):
     peer_multiaddr: Optional[str] = None
 
 
+class InternalPayoutRequest(BaseModel):
+    request_id: str
+
+
 class HostHeartbeatRequest(BaseModel):
     host_id: str
 
