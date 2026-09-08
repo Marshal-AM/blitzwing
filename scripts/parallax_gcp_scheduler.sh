@@ -16,7 +16,7 @@ if [[ ! -d "$PARALLAX_DIR/.venv" ]]; then
   echo "==> Cloning and installing Parallax..."
   git clone https://github.com/GradientHQ/parallax.git "$PARALLAX_DIR" || true
   cd "$PARALLAX_DIR"
-  ./install.sh --extras gpu 2>&1 | tee "${LOG_DIR}/install.log"
+  ./install.sh --extras gpu -u 2>&1 | tee "${LOG_DIR}/install.log"
 else
   echo "==> Parallax already installed at $PARALLAX_DIR"
 fi

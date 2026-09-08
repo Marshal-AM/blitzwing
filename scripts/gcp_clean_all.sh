@@ -9,12 +9,7 @@ for proc in \
   'petals.cli.run_server' \
   'x402-gateway/index.ts' \
   'x402-facilitator/index.ts' \
-  'gcp_tail_pay_logs' \
-  'tail -n' \
-  'gcp_full_restart' \
-  'gcp_restart' \
-  'gcp_mother' \
-  'gcp_recover'; do
+  'gcp_tail_pay_logs'; do
   pkill -9 -f "$proc" 2>/dev/null || true
 done
 fuser -k 8000/tcp 8001/tcp 8002/tcp 8791/tcp 31337/tcp 2>/dev/null || true

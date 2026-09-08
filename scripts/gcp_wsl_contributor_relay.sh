@@ -84,22 +84,33 @@ if [[ "${BLITZWING_USE_NGROK_HTTP:-1}" == "1" ]]; then
   fi
   if [[ -n "$NGROK_BIN" ]]; then
     if ! curl -sf "http://127.0.0.1:${NGROK_WEB_PORT}/api/tunnels" >/dev/null 2>&1; then
-      echo "starting ngrok http ${SHARD_PORT} (web ${NGROK_WEB_PORT})…"
-      setsid "$NGROK_BIN" http "${SHARD_PORT}" --web-addr="127.0.0.1:${NGROK_WEB_PORT}" \
-        --log=stdout > "${LOG_DIR}/ngrok_http_${SHARD_PORT}.out" 2>&1 < /dev/null &
+      echo "starting ngrok http ${SHARD_PORT}…"
+      # Older ngrok has no --web-addr; default API is :4040.
+      if "$NGROK_BIN" http --help 2>&1 | grep -q -- '--web-addr'; then
+        setsid "$NGROK_BIN" http "${SHARD_PORT}" --web-addr="127.0.0.1:${NGROK_WEB_PORT}" \
+          --log=stdout > "${LOG_DIR}/ngrok_http_${SHARD_PORT}.out" 2>&1 < /dev/null &
+      else
+        NGROK_WEB_PORT=4040
+        setsid "$NGROK_BIN" http "${SHARD_PORT}" \
+          --log=stdout > "${LOG_DIR}/ngrok_http_${SHARD_PORT}.out" 2>&1 < /dev/null &
+      fi
       sleep 5
     fi
-    SHARD_PUBLIC_URL="$(python3 -c '
-import json, os, sys, urllib.request
+    SHARD_PUBLIC_URL="$(
+      SHARD_PORT="$SHARD_PORT" NGROK_WEB_PORT="$NGROK_WEB_PORT" python3 -c '
+import json, os, urllib.request
 port = os.environ["SHARD_PORT"]
 web = os.environ["NGROK_WEB_PORT"]
 with urllib.request.urlopen(f"http://127.0.0.1:{web}/api/tunnels", timeout=10) as r:
     data = json.load(r)
 for t in data.get("tunnels", []):
-    if str(t.get("config", {}).get("addr", "")).endswith(f":{port}"):
-        print(t["public_url"])
+    pub = (t.get("public_url") or "").rstrip("/")
+    addr = str(t.get("config", {}).get("addr", ""))
+    if pub and (addr.endswith(f":{port}") or t.get("proto") in ("https", "http")):
+        print(pub)
         break
-' SHARD_PORT="$SHARD_PORT" NGROK_WEB_PORT="$NGROK_WEB_PORT" 2>/dev/null || true)"
+' 2>/dev/null || true
+    )"
     echo "shard_public_url=${SHARD_PUBLIC_URL}"
   fi
 fi
