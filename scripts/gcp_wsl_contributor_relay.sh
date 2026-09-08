@@ -123,6 +123,7 @@ export PETALS_QUANT_TYPE=none
 export BLITZWING_HOST_ID="$HOST_ID"
 export BLITZWING_MOTHER_URL="$MOTHER_URL"
 export HEARTBEAT_INTERVAL_SECONDS=20
+export CONTRIB_SHARD_LOG="${LOG_DIR}/contrib_shard.out"
 
 : > "${LOG_DIR}/contrib_shard.out"
 nohup python -m uvicorn shard_manager.app:app --host 0.0.0.0 --port "$SHARD_PORT" \
@@ -143,8 +144,8 @@ for i in $(seq 1 180); do
 done
 grep -q "Running a server on" "${LOG_DIR}/contrib_shard.out" || { tail -n 40 "${LOG_DIR}/contrib_shard.out"; exit 1; }
 
-echo "waiting 45s for DHT block announcements…"
-sleep 45
+echo "waiting 20s for DHT block announcements + inference warm-up…"
+sleep 20
 
 PEER_MADDR=""
 echo "PEER_MADDR=${PEER_MADDR:-<none>} (inference uses HTTP ${SHARD_PUBLIC_URL})"

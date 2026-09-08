@@ -14,7 +14,7 @@ from typing import List, Optional
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
-from shard_manager.inference import get_contributor_inference
+from shard_manager.inference import get_contributor_inference, warm_contributor_inference_async
 from shard_manager.heartbeat import maybe_start_from_env
 
 logging.basicConfig(level=logging.INFO)
@@ -220,6 +220,19 @@ def on_startup() -> None:
             manager.start(bootstrap=manager.new_swarm)
         except Exception:  # noqa: BLE001
             logger.exception("Failed to auto-start Petals server")
+        # Warm Petals client + DHT in background (contributors only — mother has initial_peers empty / new_swarm).
+        if manager.initial_peers and not manager.new_swarm:
+            log_path = os.getenv(
+                "CONTRIB_SHARD_LOG",
+                str(Path.home() / ".blitzwing" / "contrib_shard.out"),
+            )
+            warm_contributor_inference_async(
+                manager.model,
+                list(manager.initial_peers),
+                local_port=manager.port,
+                log_path=log_path,
+                delay_seconds=12.0,
+            )
 
 
 @app.on_event("shutdown")
