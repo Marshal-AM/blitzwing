@@ -5,7 +5,11 @@
  *   @x402/core  — x402ResourceServer + x402HTTPResourceServer
  *   @x402/hedera — ExactHederaScheme (exact / HBAR)
  *
- * Flow: verify → proxy inference → settle on success → internal payout
+ * Flow: verify → settle to escrow (pre-pay) → proxy inference → distribute from escrow
+ *
+ * Payment is settled BEFORE inference starts to avoid Hedera tx expiry during
+ * slow CPU inference. After inference completes, the escrow distributes to
+ * compute providers based on their layer contributions.
  */
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -190,29 +194,8 @@ async function createApp(): Promise<Hono> {
       }
 
       if (result.type === "payment-verified") {
-        const forwardHeaders = new Headers();
-        const ct = c.req.header("content-type");
-        if (ct) forwardHeaders.set("content-type", ct);
-        else forwardHeaders.set("content-type", "application/json");
-        forwardHeaders.set("X-Blitzwing-Paid", "verified");
-
-        const up = await proxyUpstream(reqPath, {
-          method: "POST",
-          headers: forwardHeaders,
-          body: bodyBuf,
-        });
-        const upBody = await up.arrayBuffer();
-        const upText = new TextDecoder().decode(upBody);
-
-        if (!up.ok) {
-          return new Response(upBody, {
-            status: up.status,
-            headers: {
-              "content-type": up.headers.get("content-type") || "application/json",
-            },
-          });
-        }
-
+        // SETTLE PAYMENT FIRST (pre-pay into escrow) before inference starts
+        // This prevents Hedera tx expiry during slow inference
         const settle = await httpServer.processSettlement(
           result.paymentPayload,
           result.paymentRequirements,
@@ -227,13 +210,45 @@ async function createApp(): Promise<Hono> {
               error: "settlement_failed",
               errorReason: settle.errorReason,
               errorMessage: settle.errorMessage,
-              detail: "Inference succeeded but payment settlement failed",
+              detail: "Payment settlement failed before inference",
             }),
             {
               status: 402,
               headers: { "content-type": "application/json", ...settleHeaders },
             },
           );
+        }
+
+        // Payment settled successfully - now run inference (can take as long as needed)
+        const forwardHeaders = new Headers();
+        const ct = c.req.header("content-type");
+        if (ct) forwardHeaders.set("content-type", ct);
+        else forwardHeaders.set("content-type", "application/json");
+        forwardHeaders.set("X-Blitzwing-Paid", "verified");
+        forwardHeaders.set("X-Blitzwing-X402-Tx-Id", String(settle.transaction || ""));
+
+        const up = await proxyUpstream(reqPath, {
+          method: "POST",
+          headers: forwardHeaders,
+          body: bodyBuf,
+        });
+        const upBody = await up.arrayBuffer();
+        const upText = new TextDecoder().decode(upBody);
+
+        if (!up.ok) {
+          // Inference failed but payment already settled - log for reconciliation
+          console.error(
+            `Inference failed after payment settled (tx=${settle.transaction}):`,
+            up.status,
+            upText.slice(0, 500),
+          );
+          return new Response(upBody, {
+            status: up.status,
+            headers: {
+              "content-type": up.headers.get("content-type") || "application/json",
+              ...settleHeaders,
+            },
+          });
         }
 
         let responseBody: unknown = upText;
@@ -251,6 +266,7 @@ async function createApp(): Promise<Hono> {
             ? (responseBody as { id: string }).id
             : null;
 
+        // Distribute payment from escrow to compute providers
         if (completionId && settle.transaction) {
           try {
             const payoutRes = await fetch(`${upstream}/v1/internal/payout`, {
@@ -270,7 +286,7 @@ async function createApp(): Promise<Hono> {
               }
             } else {
               console.error(
-                "Payout after settle failed:",
+                "Payout from escrow failed:",
                 payoutRes.status,
                 await payoutRes.text(),
               );
