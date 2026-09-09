@@ -1,8 +1,14 @@
 import { spawn, execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { HOME_DIR, VENV_PATH, SHARD_PORT, PETALS_PORT } from "./config.js";
 import { which } from "./net.js";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const PACKAGE_ROOT = path.join(__dirname, "..");
+const RUNTIME_SRC = path.join(PACKAGE_ROOT, "runtime");
+const RUNTIME_DEST = path.join(HOME_DIR, "runtime");
 
 function venvPython() {
   if (process.platform === "win32") {
@@ -45,7 +51,6 @@ function pinnedPythonPath() {
 }
 
 export function ensurePython() {
-  // Petals/hivemind break on 3.12+. Never fall back to a too-new interpreter.
   const home = process.env.HOME || process.env.USERPROFILE || "";
   const candidates = [];
   const envBin = process.env.BLITZWING_PYTHON || process.env.PETALS_PYTHON;
@@ -101,11 +106,7 @@ export function ensurePython() {
 
 function petalsImportable(python) {
   try {
-    execFileSync(
-      python,
-      ["-c", "import petals.cli.run_server"],
-      { stdio: "ignore" }
-    );
+    execFileSync(python, ["-c", "import petals.cli.run_server"], { stdio: "ignore" });
     return true;
   } catch {
     return false;
@@ -114,20 +115,21 @@ function petalsImportable(python) {
 
 function uvicornImportable(python) {
   try {
-    execFileSync(python, ["-c", "import uvicorn, fastapi"], { stdio: "ignore" });
+    execFileSync(python, ["-c", "import uvicorn, fastapi, httpx, numpy"], { stdio: "ignore" });
     return true;
   } catch {
     return false;
   }
 }
 
-function ensureShardManagerDeps(python, pip, env, onLog) {
+function ensureShardManagerDeps(python, _pip, env, onLog) {
   if (uvicornImportable(python)) return;
-  onLog?.("Installing shard manager deps (uvicorn, fastapi)...");
-  execFileSync(python, ["-m", "pip", "install", "fastapi", "uvicorn[standard]", "pydantic"], {
-    stdio: "inherit",
-    env,
-  });
+  onLog?.("Installing shard manager deps (uvicorn, fastapi, httpx, numpy)...");
+  execFileSync(
+    python,
+    ["-m", "pip", "install", "fastapi", "uvicorn[standard]", "pydantic", "httpx", "numpy"],
+    { stdio: "inherit", env }
+  );
 }
 
 export function ensureVenvAndPetals({ onLog }) {
@@ -155,11 +157,10 @@ export function ensureVenvAndPetals({ onLog }) {
 
   if (process.platform === "win32") {
     throw new Error(
-      "Petals cannot be installed on native Windows (hivemind requires uvloop/Linux).\n" +
-        "Run the contributor inside WSL instead:\n" +
-        "  wsl bash /mnt/c/Users/MSI/Desktop/blitzwing/scripts/local_wsl_contributor_join.sh\n" +
-        "Or run the full E2E script:\n" +
-        "  powershell -File scripts/run_local_e2e.ps1"
+      "Petals cannot run on native Windows (needs Linux).\n" +
+        "Install Node in WSL, then:\n" +
+        "  npm i -g blitzwing\n" +
+        "  blitzwing"
     );
   }
 
@@ -173,12 +174,10 @@ export function ensureVenvAndPetals({ onLog }) {
     ["-m", "pip", "install", "torch", "--index-url", "https://download.pytorch.org/whl/cpu"],
     { stdio: "inherit", env }
   );
-  // Needed to compile hivemind protobufs during --no-build-isolation install
   execFileSync(python, ["-m", "pip", "install", "grpcio", "grpcio-tools", "protobuf"], {
     stdio: "inherit",
     env,
   });
-  // Hivemind first with no build isolation (needs pkg_resources from setuptools<81)
   execFileSync(
     python,
     [
@@ -195,180 +194,53 @@ export function ensureVenvAndPetals({ onLog }) {
     ["-m", "pip", "install", "--no-build-isolation", "git+https://github.com/bigscience-workshop/petals.git"],
     { stdio: "inherit", env }
   );
-  execFileSync(python, ["-m", "pip", "install", "fastapi", "uvicorn[standard]", "pydantic", "httpx"], {
-    stdio: "inherit",
-    env,
-  });
+  execFileSync(
+    python,
+    ["-m", "pip", "install", "fastapi", "uvicorn[standard]", "pydantic", "httpx", "numpy"],
+    { stdio: "inherit", env }
+  );
 
   fs.writeFileSync(path.join(HOME_DIR, "python"), python + "\n");
   return { python, pip };
 }
 
 /**
- * Write a tiny local shard-manager runner script so contributors don't need the monorepo.
- * Embeds a minimal supervisor compatible with mother /reload API.
+ * Copy packaged runtime Python modules into ~/.blitzwing/runtime.
+ * Contributors never need the monorepo — everything ships in the npm package.
  */
-export function writeLocalShardManager() {
-  const dir = path.join(HOME_DIR, "runtime");
-  fs.mkdirSync(dir, { recursive: true });
-  const appPath = path.join(dir, "shard_manager_app.py");
-  const code = `
-import os, signal, subprocess, threading, time
-from typing import Optional, List
-from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel, Field
-
-class ReloadRequest(BaseModel):
-    block_indices: str = Field(..., pattern=r"^\\d+:\\d+$")
-    initial_peers: Optional[List[str]] = None
-
-class StatusResponse(BaseModel):
-    running: bool
-    pid: Optional[int] = None
-    block_indices: Optional[str] = None
-    model: str
-    public_ip: Optional[str] = None
-    port: int
-    last_exit_code: Optional[int] = None
-
-class Mgr:
-    def __init__(self):
-        self.model = os.environ["MODEL_NAME"]
-        self.public_ip = os.environ.get("PUBLIC_IP")
-        self.port = int(os.environ.get("PETALS_PORT", "31337"))
-        self.identity_path = os.environ.get("IDENTITY_PATH", os.path.expanduser("~/.blitzwing/petals-identity"))
-        self.block_indices = os.environ["BLOCK_INDICES"]
-        peers = [p.strip() for p in os.environ.get("INITIAL_PEERS", "").split(",") if p.strip()]
-        self.initial_peers = peers
-        announce_raw = os.environ.get("ANNOUNCE_MADDRS", "")
-        self.announce_maddrs = [a.strip() for a in announce_raw.split(",") if a.strip()]
-        self.python = os.environ.get("PETALS_PYTHON", "python")
-        self.petals_log = os.environ.get("PETALS_LOG", os.path.expanduser("~/.blitzwing/petals.log"))
-        self._proc = None
-        self._log_fp = None
-        self._lock = threading.Lock()
-        self.last_exit_code = None
-
-    def cmd(self, bi):
-        c = [self.python, "-m", "petals.cli.run_server", self.model,
-             "--device", "cpu", "--quant_type", "none",
-             "--block_indices", bi, "--port", str(self.port),
-             "--identity_path", self.identity_path, "--num_handlers", "1"]
-        if self.announce_maddrs:
-            c += ["--announce_maddrs", *self.announce_maddrs]
-        elif self.public_ip:
-            c += ["--public_ip", self.public_ip]
-        if self.initial_peers:
-            c += ["--initial_peers", *self.initial_peers]
-        use_auto_relay = os.environ.get("PETALS_USE_AUTO_RELAY", "1") not in ("0", "false", "False")
-        if not self.announce_maddrs and use_auto_relay:
-            pass
-        elif not use_auto_relay:
-            c += ["--no_auto_relay"]
-        if os.environ.get("PETALS_SKIP_REACHABILITY_CHECK", "1") in ("1", "true", "True"):
-            c += ["--skip_reachability_check"]
-        return c
-
-    def start(self, bi=None):
-        with self._lock:
-            if bi: self.block_indices = bi
-            if self._proc and self._proc.poll() is None:
-                return
-            if self._log_fp is None:
-                os.makedirs(os.path.dirname(self.petals_log) or ".", exist_ok=True)
-                self._log_fp = open(self.petals_log, "a", encoding="utf-8")
-            popen_kwargs = {"stdout": self._log_fp, "stderr": subprocess.STDOUT}
-            if os.name == "nt":
-                popen_kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
-            else:
-                popen_kwargs["preexec_fn"] = os.setsid
-            self._proc = subprocess.Popen(self.cmd(self.block_indices), **popen_kwargs)
-            self.last_exit_code = None
-
-    def stop(self):
-        with self._lock:
-            if not self._proc or self._proc.poll() is not None:
-                self._proc = None
-                return
-            p = self._proc
-            try:
-                if os.name == "nt":
-                    p.send_signal(signal.CTRL_BREAK_EVENT)
-                else:
-                    os.killpg(os.getpgid(p.pid), signal.SIGTERM)
-            except Exception:
-                p.send_signal(signal.SIGTERM)
-            try: p.wait(timeout=30)
-            except Exception:
-                p.kill(); p.wait(timeout=10)
-            self.last_exit_code = p.returncode
-            self._proc = None
-
-    def reload(self, bi, initial_peers=None):
-        if initial_peers is not None:
-            self.initial_peers = initial_peers
-        self.stop(); time.sleep(1); self.start(bi)
-
-    def status(self):
-        if self._proc is not None and self._proc.poll() is not None:
-            self.last_exit_code = self._proc.returncode
-            self._proc = None
-        running = self._proc is not None and self._proc.poll() is None
-        return StatusResponse(
-            running=running,
-            pid=(self._proc.pid if running else None),
-            block_indices=self.block_indices,
-            model=self.model,
-            public_ip=self.public_ip,
-            port=self.port,
-            last_exit_code=self.last_exit_code,
-        )
-
-mgr = Mgr()
-app = FastAPI()
-
-@app.on_event("startup")
-def _up():
-    mgr.start()
-
-@app.on_event("shutdown")
-def _down():
-    mgr.stop()
-
-@app.get("/status")
-def status():
-    return mgr.status()
-
-@app.post("/reload")
-def reload(body: ReloadRequest):
-    a,b = map(int, body.block_indices.split(":"))
-    if b <= a: raise HTTPException(400, "bad range")
-    mgr.reload(body.block_indices, initial_peers=body.initial_peers)
-    time.sleep(0.5)
-    return mgr.status()
-
-@app.post("/stop")
-def stop():
-    mgr.stop(); return mgr.status()
-`;
-  fs.writeFileSync(appPath, code);
-  return appPath;
+export function syncRuntimeFiles() {
+  if (!fs.existsSync(RUNTIME_SRC)) {
+    throw new Error(`CLI runtime missing at ${RUNTIME_SRC} — reinstall the blitzwing package`);
+  }
+  fs.mkdirSync(RUNTIME_DEST, { recursive: true });
+  for (const name of fs.readdirSync(RUNTIME_SRC)) {
+    if (!name.endsWith(".py")) continue;
+    fs.copyFileSync(path.join(RUNTIME_SRC, name), path.join(RUNTIME_DEST, name));
+  }
+  return path.join(RUNTIME_DEST, "app.py");
 }
 
-export function startShardManagerProcess({
-  python,
-  env,
-  logPath,
-}) {
-  const appPath = writeLocalShardManager();
+/** @deprecated use syncRuntimeFiles */
+export function writeLocalShardManager() {
+  return syncRuntimeFiles();
+}
+
+export function startShardManagerProcess({ python, env, logPath }) {
+  const appPath = syncRuntimeFiles();
   const out = fs.openSync(logPath, "a");
   const petalsPy = petalsImportable(venvPython()) ? venvPython() : python;
   const child = spawn(
     petalsPy,
-    ["-m", "uvicorn", `shard_manager_app:app`, "--host", "0.0.0.0", "--port", String(SHARD_PORT)],
+    ["-m", "uvicorn", "app:app", "--host", "0.0.0.0", "--port", String(SHARD_PORT)],
     {
       cwd: path.dirname(appPath),
-      env: { ...process.env, ...env, PETALS_PYTHON: petalsPy, PETALS_LOG: path.join(HOME_DIR, "petals.log") },
+      env: {
+        ...process.env,
+        ...env,
+        PETALS_PYTHON: petalsPy,
+        PETALS_LOG: path.join(HOME_DIR, "petals.log"),
+        PYTHONPATH: path.dirname(appPath),
+      },
       detached: true,
       stdio: ["ignore", out, out],
     }
@@ -398,7 +270,6 @@ export async function waitForShardRunning({ timeoutMs = 300000, statusHost } = {
       }
     } catch (err) {
       if (err instanceof Error && err.message.startsWith("Petals exited")) throw err;
-      /* retry */
     }
     await new Promise((r) => setTimeout(r, 2000));
   }
@@ -410,4 +281,4 @@ export async function waitForShardRunning({ timeoutMs = 300000, statusHost } = {
   );
 }
 
-export { SHARD_PORT, PETALS_PORT, venvPython };
+export { SHARD_PORT, PETALS_PORT, venvPython, RUNTIME_DEST };

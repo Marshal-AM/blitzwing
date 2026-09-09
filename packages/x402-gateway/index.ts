@@ -341,9 +341,39 @@ async function createApp(): Promise<Hono> {
     });
   });
 
-  // HTTP chain: contributor POSTs prefix hidden-states through the public gateway.
+  // HTTP chain: contributor POSTs prefix/continue hidden-states through the public gateway.
   app.all("/v1/chain/prefix", async (c) => {
     const url = `${shardUpstream}/v1/chain/prefix`;
+    const headers = new Headers();
+    const ct = c.req.header("content-type");
+    if (ct) headers.set("content-type", ct);
+    const init: RequestInit = { method: c.req.method, headers };
+    if (c.req.method !== "GET" && c.req.method !== "HEAD") {
+      init.body = await c.req.arrayBuffer();
+    }
+    try {
+      const up = await fetch(url, {
+        ...init,
+        signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
+      });
+      const upBody = await up.arrayBuffer();
+      return new Response(upBody, {
+        status: up.status,
+        headers: {
+          "content-type": up.headers.get("content-type") || "application/json",
+        },
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return c.json(
+        { detail: `Shard manager unreachable at ${shardUpstream}: ${message}` },
+        502,
+      );
+    }
+  });
+
+  app.all("/v1/chain/continue", async (c) => {
+    const url = `${shardUpstream}/v1/chain/continue`;
     const headers = new Headers();
     const ct = c.req.header("content-type");
     if (ct) headers.set("content-type", ct);

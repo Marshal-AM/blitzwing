@@ -10,9 +10,9 @@ from typing import List, Optional, Sequence, Tuple
 import httpx
 import torch
 
-from shard_manager.inference import InferenceResult
-from shard_manager.local_runner import LocalShardRunner, parse_range
-from shard_manager.tensor_codec import tensor_from_payload, tensor_to_payload
+from inference import InferenceResult
+from local_runner import LocalShardRunner, parse_range
+from tensor_codec import tensor_from_payload, tensor_to_payload
 
 logger = logging.getLogger(__name__)
 

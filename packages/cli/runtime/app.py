@@ -1,4 +1,4 @@
-"""Shard manager — supervise a Petals server subprocess and reload block ranges."""
+"""Contributor shard manager — Petals supervisor + HTTP-chain inference endpoints."""
 
 from __future__ import annotations
 
@@ -16,10 +16,9 @@ from typing import List, Optional
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
-from shard_manager.heartbeat import maybe_start_from_env
-from shard_manager.http_chain import HttpChainInference
-from shard_manager.local_runner import LocalShardRunner
-from shard_manager.tensor_codec import tensor_from_payload, tensor_to_payload
+from http_chain import HttpChainInference
+from local_runner import LocalShardRunner
+from tensor_codec import tensor_from_payload, tensor_to_payload
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -79,14 +78,15 @@ class ShardManager:
         self.model = os.getenv("MODEL_NAME", "bigscience/bloom-560m")
         self.public_ip = os.getenv("PUBLIC_IP")
         self.port = int(os.getenv("PETALS_PORT", "31337"))
-        self.identity_path = os.getenv("IDENTITY_PATH", str(Path.home() / "petals-identity"))
+        self.identity_path = os.getenv(
+            "IDENTITY_PATH", str(Path.home() / ".blitzwing" / "petals-identity")
+        )
         self.device = os.getenv("PETALS_DEVICE", "cpu")
         self.quant_type = os.getenv("PETALS_QUANT_TYPE", "none")
         self.num_handlers = int(os.getenv("PETALS_NUM_HANDLERS", "1"))
         self.python = os.getenv("PETALS_PYTHON", "python")
         peers_raw = os.getenv("INITIAL_PEERS", "")
         self.initial_peers = [p.strip() for p in peers_raw.split(",") if p.strip()]
-        # Comma-separated multiaddrs; preferred over PUBLIC_IP when set (avoids NAT hairpin).
         announce_raw = os.getenv("ANNOUNCE_MADDRS", "")
         self.announce_maddrs = [a.strip() for a in announce_raw.split(",") if a.strip()]
         self.new_swarm = os.getenv("NEW_SWARM", "0") in ("1", "true", "True")
@@ -100,9 +100,12 @@ class ShardManager:
         self.last_exit_code: Optional[int] = None
         self._auto_start = os.getenv("SHARD_AUTO_START", "1") not in ("0", "false", "False")
         self._bootstrapped = False
+        self._log_fp = None
+        self.petals_log = os.getenv(
+            "PETALS_LOG", str(Path.home() / ".blitzwing" / "petals.log")
+        )
 
     def _resolve_use_auto_relay(self) -> bool:
-        """NAT contributors default to libp2p auto-relay; explicit announce disables it."""
         raw = os.getenv("PETALS_USE_AUTO_RELAY")
         if raw is not None:
             return raw not in ("0", "false", "False", "no")
@@ -129,7 +132,6 @@ class ShardManager:
             "--num_handlers",
             str(self.num_handlers),
         ]
-        # Prefer explicit announce list (local + ngrok) over a single PUBLIC_IP.
         if self.announce_maddrs:
             cmd.append("--announce_maddrs")
             cmd.extend(self.announce_maddrs)
@@ -155,7 +157,13 @@ class ShardManager:
             use_bootstrap = bootstrap or (self.new_swarm and not self._bootstrapped)
             cmd = self.build_cmd(self.block_indices, bootstrap=use_bootstrap)
             logger.info("Starting Petals: %s", " ".join(cmd))
-            popen_kwargs: dict = {}
+            if self._log_fp is None:
+                Path(self.petals_log).parent.mkdir(parents=True, exist_ok=True)
+                self._log_fp = open(self.petals_log, "a", encoding="utf-8")
+            popen_kwargs: dict = {
+                "stdout": self._log_fp,
+                "stderr": subprocess.STDOUT,
+            }
             if os.name != "nt":
                 popen_kwargs["preexec_fn"] = os.setsid
             self._proc = subprocess.Popen(cmd, **popen_kwargs)
@@ -195,8 +203,6 @@ class ShardManager:
     def reload(self, block_indices: str, initial_peers: Optional[List[str]] = None) -> None:
         if initial_peers is not None:
             self.initial_peers = initial_peers
-        # Mother swarms (NEW_SWARM=1) must re-bootstrap after stop — dialing their own
-        # public multiaddr as initial_peers fails (NAT hairpin / self-dial).
         rebootstrap = self.new_swarm
         logger.info(
             "Reloading Petals with block_indices=%s initial_peers=%s rebootstrap=%s",
@@ -230,7 +236,7 @@ class ShardManager:
 
 
 manager = ShardManager()
-app = FastAPI(title="Blitzwing Shard Manager", version="0.1.0")
+app = FastAPI(title="Blitzwing Contributor Shard Manager", version="0.2.0")
 
 _local_runner: Optional[LocalShardRunner] = None
 _http_chain: Optional[HttpChainInference] = None
@@ -238,17 +244,10 @@ _inference_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="shar
 
 
 def _petals_log_path() -> str:
-    explicit = os.getenv("PETALS_SERVER_LOG") or os.getenv("CONTRIB_SHARD_LOG")
-    if explicit:
-        return explicit
-    mother_log = Path.home() / "blitzwing-logs" / "shard_manager.log"
-    if mother_log.exists():
-        return str(mother_log)
-    return str(Path.home() / ".blitzwing" / "contrib_shard.out")
+    return manager.petals_log
 
 
 def _reset_inference_caches() -> None:
-    """Drop cached runners after Petals reload so block ranges stay in sync."""
     global _local_runner, _http_chain
     if _local_runner is not None or _http_chain is not None:
         logger.info("Resetting inference caches (blocks=%s)", manager.block_indices)
@@ -295,20 +294,18 @@ def _prewarm_local_runner() -> None:
         time.sleep(2)
     try:
         _get_local_runner()
-        logger.info("LocalShardRunner pre-warmed for HTTP chain prefix")
+        logger.info("LocalShardRunner pre-warmed for HTTP chain")
     except Exception:  # noqa: BLE001
         logger.exception("LocalShardRunner pre-warm failed")
 
 
 @app.on_event("startup")
 def on_startup() -> None:
-    maybe_start_from_env(manager)
     if manager._auto_start:
         try:
             manager.start(bootstrap=manager.new_swarm)
         except Exception:  # noqa: BLE001
             logger.exception("Failed to auto-start Petals server")
-
     threading.Thread(
         target=_prewarm_local_runner, name="prefix-prewarm", daemon=True
     ).start()
@@ -343,7 +340,6 @@ def reload(body: ReloadRequest) -> StatusResponse:
     threading.Thread(
         target=_prewarm_local_runner, name="prefix-prewarm", daemon=True
     ).start()
-    # Give process a moment to spawn
     time.sleep(0.5)
     return manager.status()
 
@@ -354,18 +350,8 @@ def stop() -> StatusResponse:
     return manager.status()
 
 
-@app.post("/start", response_model=StatusResponse)
-def start(body: Optional[ReloadRequest] = None) -> StatusResponse:
-    try:
-        manager.start(body.block_indices if body else None)
-    except Exception as exc:  # noqa: BLE001
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
-    return manager.status()
-
-
 @app.post("/v1/chain/prefix", response_model=PrefixResponse)
 async def chain_prefix(body: PrefixRequest) -> PrefixResponse:
-    """Run embeddings + this node's prefix blocks; return hidden states (HTTP chain)."""
     st = manager.status()
     if not st.running:
         raise HTTPException(status_code=503, detail="Petals server not running")
@@ -388,7 +374,6 @@ async def chain_prefix(body: PrefixRequest) -> PrefixResponse:
 
 @app.post("/v1/chain/continue", response_model=ContinueResponse)
 async def chain_continue(body: ContinueRequest) -> ContinueResponse:
-    """Continue HTTP chain: run this node's blocks on upstream hidden states."""
     st = manager.status()
     if not st.running:
         raise HTTPException(status_code=503, detail="Petals server not running")
@@ -409,10 +394,6 @@ async def chain_continue(body: ContinueRequest) -> ContinueResponse:
 
 @app.post("/v1/chat/completions", response_model=ChatInferenceResponse)
 async def chat_completions(body: ChatInferenceRequest) -> ChatInferenceResponse:
-    """
-    HTTP-chained inference: prefix → middle continues → local tail + sample.
-    Every online host with a contiguous block range participates.
-    """
     st = manager.status()
     if not st.running:
         raise HTTPException(status_code=503, detail="Petals server not running")

@@ -1,22 +1,17 @@
 import * as p from "@clack/prompts";
 import color from "picocolors";
-import fs from "node:fs";
 import path from "node:path";
-import { spawn } from "node:child_process";
 import { DEFAULT_DISCOVERY_URL, HOME_DIR, SHARD_PORT, PETALS_PORT } from "./config.js";
 import { listMothers, motherHosts, joinHost, readyHost, leaveHost } from "./api.js";
-import {
-  detectPublicIp,
-  detectLocalIp,
-  discoverNgrokTcpAnnounce,
-  extractPeerMultiaddrFromLog,
-} from "./net.js";
+import { detectPublicIp, detectLocalIp } from "./net.js";
 import {
   ensureVenvAndPetals,
   startShardManagerProcess,
   waitForShardRunning,
+  syncRuntimeFiles,
   venvPython,
 } from "./install.js";
+import { ensureCloudflared, startQuickTunnel, stopTunnelProcess } from "./tunnel.js";
 import { saveState, loadState, clearState, ensureHome } from "./state.js";
 import { startContributorHeartbeatDaemon } from "./heartbeat.js";
 
@@ -60,10 +55,9 @@ ${color.bold("blitzwing")} — join a Blitzwing mother swarm as a compute node
   blitzwing leave        Leave the swarm and reclaim your layers
 
 Env:
-  BLITZWING_DISCOVERY_URL   Override discovery service (default ${DEFAULT_DISCOVERY_URL})
-  BLITZWING_ANNOUNCE_MADDRS Explicit Petals announce multiaddr (VM with public IP)
-  BLITZWING_LOCAL_IP        Local IP for shard manager metadata
-  PETALS_USE_AUTO_RELAY=0   Disable libp2p auto-relay (use with public IP / port-forward)
+  BLITZWING_DISCOVERY_URL      Override discovery service (default ${DEFAULT_DISCOVERY_URL})
+  BLITZWING_HEDERA_ACCOUNT_ID  Prefill Hedera payout account (0.0.N)
+  BLITZWING_SHARD_PORT         Local shard HTTP port (default ${SHARD_PORT})
 `);
 }
 
@@ -71,6 +65,7 @@ async function wizard(args) {
   p.intro(color.bgCyan(color.black(" blitzwing ")));
   ensureHome();
 
+  const existing = loadState();
   const spin = p.spinner();
   spin.start("Loading network from Discovery Service…");
   let mothers;
@@ -122,108 +117,77 @@ async function wizard(args) {
     process.exit(1);
   }
 
-  const layers = await p.text({
-    message: `How many layers can this machine host? (1–${maxLayers})`,
-    initialValue: String(Math.min(8, maxLayers)),
-    validate(v) {
-      const n = Number(v);
-      if (!Number.isInteger(n) || n < 1 || n > maxLayers) {
-        return `Enter an integer between 1 and ${maxLayers}`;
-      }
-    },
-  });
-  if (p.isCancel(layers)) {
-    p.cancel("Setup cancelled");
-    process.exit(0);
-  }
-  const layersN = Number(layers);
+  const nonInteractive =
+    process.env.BLITZWING_NONINTERACTIVE === "1" ||
+    process.env.BLITZWING_YES === "1" ||
+    !process.stdin.isTTY;
 
-  const detected = await detectPublicIp();
-  const networkMode = await p.select({
-    message: "How will other peers reach your Petals node?",
-    options: [
-      {
-        value: "relay",
-        label: "Auto (recommended for home / NAT)",
-        hint: "Uses Petals libp2p relay — no port forwarding",
-      },
-      {
-        value: "public",
-        label: "Public IP / cloud VM",
-        hint: "TCP 31337 (and 8001) open on the internet",
-      },
-      {
-        value: "ngrok",
-        label: "Dev tunnel (ngrok TCP on :4040)",
-        hint: "Only if ngrok is already running",
-      },
-    ],
-    initialValue: "relay",
-  });
-  if (p.isCancel(networkMode)) {
-    p.cancel("Setup cancelled");
-    process.exit(0);
-  }
-
-  let publicIp = "";
-  let announceMaddrs = "";
-  let useAutoRelay = "1";
-
-  if (networkMode === "public") {
-    publicIp = await p.text({
-      message: "Public IPv4 (must be reachable on TCP " + PETALS_PORT + ")",
-      initialValue: detected || "",
+  let layersN;
+  if (nonInteractive && process.env.BLITZWING_LAYERS) {
+    layersN = Number(process.env.BLITZWING_LAYERS);
+    if (!Number.isInteger(layersN) || layersN < 1 || layersN > maxLayers) {
+      p.cancel(`BLITZWING_LAYERS must be an integer between 1 and ${maxLayers}`);
+      process.exit(1);
+    }
+    p.log.info(`Layers: ${layersN} (non-interactive)`);
+  } else {
+    const layers = await p.text({
+      message: `How many layers can this machine host? (1–${maxLayers})`,
+      initialValue: String(Math.min(8, maxLayers)),
       validate(v) {
-        if (!v || !/^\d+\.\d+\.\d+\.\d+$/.test(String(v).trim())) {
-          return "Enter a valid public IPv4 address";
+        const n = Number(v);
+        if (!Number.isInteger(n) || n < 1 || n > maxLayers) {
+          return `Enter an integer between 1 and ${maxLayers}`;
         }
       },
     });
-    if (p.isCancel(publicIp)) {
+    if (p.isCancel(layers)) {
       p.cancel("Setup cancelled");
       process.exit(0);
     }
-    publicIp = String(publicIp).trim();
-    announceMaddrs = `/ip4/${publicIp}/tcp/${PETALS_PORT}`;
-    useAutoRelay = "0";
-  } else if (networkMode === "ngrok") {
-    const ngrok = await discoverNgrokTcpAnnounce(PETALS_PORT);
-    if (!ngrok) {
-      p.cancel("No ngrok TCP tunnel on http://127.0.0.1:4040. Start: ngrok tcp " + PETALS_PORT);
+    layersN = Number(layers);
+  }
+
+  const hederaPrefill =
+    process.env.BLITZWING_HEDERA_ACCOUNT_ID ||
+    process.env.HEDERA_ACCOUNT_ID ||
+    existing?.hedera_account_id ||
+    "";
+  let hederaAccountId;
+  if (nonInteractive && hederaPrefill) {
+    hederaAccountId = String(hederaPrefill).trim();
+    if (!/^0\.0\.\d+$/.test(hederaAccountId)) {
+      p.cancel("BLITZWING_HEDERA_ACCOUNT_ID must look like 0.0.123456");
       process.exit(1);
     }
-    announceMaddrs = ngrok;
-    publicIp = ngrok.match(/dns4\/([^/]+)/)?.[1] || detected || "relay";
-    useAutoRelay = "0";
-    p.log.info(`Using ngrok announce ${announceMaddrs}`);
+    p.log.info(`Hedera payouts: ${hederaAccountId} (non-interactive)`);
   } else {
-    publicIp = detected || "relay";
-    p.log.info("Using Petals libp2p auto-relay (no inbound port forward required).");
+    const hederaAccount = await p.text({
+      message: "Hedera account ID for layer payouts (e.g. 0.0.123456)",
+      initialValue: hederaPrefill,
+      validate(v) {
+        const s = String(v || "").trim();
+        if (!/^0\.0\.\d+$/.test(s)) return "Enter a Hedera account like 0.0.123456";
+      },
+    });
+    if (p.isCancel(hederaAccount)) {
+      p.cancel("Setup cancelled");
+      process.exit(0);
+    }
+    hederaAccountId = String(hederaAccount).trim();
   }
 
-  const localIp = await detectLocalIp();
-
-  const hederaAccount = await p.text({
-    message: "Hedera account ID for layer payouts (e.g. 0.0.123456)",
-    initialValue: process.env.BLITZWING_HEDERA_ACCOUNT_ID || "",
-    validate(v) {
-      const s = String(v || "").trim();
-      if (!/^0\.0\.\d+$/.test(s)) return "Enter a Hedera account like 0.0.123456";
-    },
-  });
-  if (p.isCancel(hederaAccount)) {
-    p.cancel("Setup cancelled");
-    process.exit(0);
-  }
-  const hederaAccountId = String(hederaAccount).trim();
-
-  const confirm = await p.confirm({
-    message: `Join ${selected.model} hosting ${layersN} layers (${networkMode}) paying to ${hederaAccountId}?`,
-    initialValue: true,
-  });
-  if (p.isCancel(confirm) || !confirm) {
-    p.cancel("Setup cancelled");
-    process.exit(0);
+  if (!nonInteractive) {
+    const confirm = await p.confirm({
+      message: `Join ${selected.model} hosting ${layersN} layers, payouts to ${hederaAccountId}?`,
+      initialValue: true,
+    });
+    if (p.isCancel(confirm) || !confirm) {
+      p.cancel("Setup cancelled");
+      process.exit(0);
+    }
+  } else {
+    p.log.info(`Joining ${selected.model} with ${layersN} layers…`);
   }
 
   spin.start("Preparing Python environment + Petals");
@@ -233,6 +197,7 @@ async function wizard(args) {
         spin.message(msg);
       },
     });
+    syncRuntimeFiles();
   } catch (err) {
     spin.stop("Install failed");
     p.cancel(err.message);
@@ -241,8 +206,28 @@ async function wizard(args) {
   const python = venvPython();
   spin.stop("Environment ready");
 
-  const shardManagerUrl = `http://${localIp}:${SHARD_PORT}`;
-  const petalsLogPath = path.join(HOME_DIR, "petals.log");
+  spin.start("Setting up Cloudflare Quick Tunnel…");
+  let tunnel;
+  try {
+    const cfBin = await ensureCloudflared({
+      onLog: (msg) => {
+        spin.message(msg);
+      },
+    });
+    tunnel = await startQuickTunnel({
+      port: SHARD_PORT,
+      binary: cfBin,
+      logPath: path.join(HOME_DIR, "cloudflared.log"),
+    });
+  } catch (err) {
+    spin.stop("Tunnel failed");
+    p.cancel(err.message);
+    process.exit(1);
+  }
+  spin.stop(`Public URL ${tunnel.url}`);
+
+  const localIp = await detectLocalIp();
+  const publicIp = (await detectPublicIp()) || localIp || "tunnel";
 
   spin.start("Requesting layer assignment from mother…");
   let assignment;
@@ -251,10 +236,11 @@ async function wizard(args) {
       model: selected.model,
       layers: layersN,
       public_ip: String(publicIp).trim(),
-      shard_manager_url: shardManagerUrl,
+      shard_manager_url: tunnel.url,
       hedera_account_id: hederaAccountId,
     });
   } catch (err) {
+    tunnel.stop();
     spin.stop("Join rejected");
     const max = err.body?.detail?.max_layers;
     p.cancel(`${err.message}${max != null ? ` (max available: ${max})` : ""}`);
@@ -265,19 +251,21 @@ async function wizard(args) {
   const logPath = path.join(HOME_DIR, "shard_manager.log");
   spin.start("Starting local Petals server…");
   const shardEnv = {
-      MODEL_NAME: selected.model,
-      PUBLIC_IP: announceMaddrs ? "" : String(publicIp).trim(),
-      BLOCK_INDICES: assignment.block_indices,
-      INITIAL_PEERS: (assignment.initial_peers || []).join(","),
-      PETALS_PORT: String(PETALS_PORT),
-      IDENTITY_PATH: path.join(HOME_DIR, "petals-identity"),
-      SHARD_AUTO_START: "1",
-      PETALS_USE_AUTO_RELAY: useAutoRelay,
-      PETALS_SKIP_REACHABILITY_CHECK: "1",
-    };
-  if (announceMaddrs) {
-    shardEnv.ANNOUNCE_MADDRS = announceMaddrs;
-  }
+    MODEL_NAME: selected.model,
+    PUBLIC_IP: String(publicIp).trim(),
+    BLOCK_INDICES: assignment.block_indices,
+    INITIAL_PEERS: "",
+    NEW_SWARM: "1",
+    BLITZWING_HTTP_ONLY: "1",
+    PETALS_PORT: String(PETALS_PORT),
+    IDENTITY_PATH: path.join(HOME_DIR, "petals-identity"),
+    SHARD_AUTO_START: "1",
+    PETALS_USE_AUTO_RELAY: "0",
+    PETALS_SKIP_REACHABILITY_CHECK: "1",
+    BLITZWING_MOTHER_URL: selected.mother_url,
+    MOTHER_PUBLIC_SHARD_URL: selected.mother_url,
+    BLITZWING_HOST_ID: assignment.host_id,
+  };
   const { pid } = startShardManagerProcess({
     python,
     logPath,
@@ -287,6 +275,7 @@ async function wizard(args) {
   try {
     await waitForShardRunning({ timeoutMs: 600000, statusHost: "127.0.0.1" });
   } catch (err) {
+    tunnel.stop();
     spin.stop("Petals did not become ready");
     p.cancel(`${err.message}. See ${logPath}`);
     process.exit(1);
@@ -294,13 +283,12 @@ async function wizard(args) {
   spin.stop("Petals is serving your layers");
 
   spin.start("Finalizing handoff with mother…");
-  const peerMultiaddr = extractPeerMultiaddrFromLog(petalsLogPath, fs);
   try {
     await readyHost(selected.mother_url, {
       host_id: assignment.host_id,
-      peer_multiaddr: peerMultiaddr || undefined,
     });
   } catch (err) {
+    tunnel.stop();
     spin.stop("Handoff failed");
     p.cancel(err.message);
     process.exit(1);
@@ -314,9 +302,10 @@ async function wizard(args) {
     block_indices: assignment.block_indices,
     layers_hosted: assignment.layers_hosted,
     public_ip: String(publicIp).trim(),
-    network_mode: networkMode,
-    announce_maddrs: announceMaddrs || null,
-    shard_manager_url: shardManagerUrl,
+    network_mode: "cloudflare",
+    shard_manager_url: tunnel.url,
+    tunnel_url: tunnel.url,
+    tunnel_pid: tunnel.pid,
     shard_pid: pid,
     discovery_url: args.discoveryUrl,
     hedera_account_id: hederaAccountId,
@@ -330,6 +319,7 @@ async function wizard(args) {
 
   p.outro(
     `${color.green("You are online.")} Hosting ${color.cyan(String(state.layers_hosted))} layers of ${color.cyan(state.model)} at ${state.block_indices}\n` +
+      `Tunnel: ${color.cyan(tunnel.url)}\n` +
       `Run ${color.bold("blitzwing status")} anytime, or ${color.bold("blitzwing leave")} to exit.`
   );
 }
@@ -346,10 +336,10 @@ async function showStatus() {
   console.log(`  layers_hosted:  ${state.layers_hosted}`);
   console.log(`  block_indices:  ${state.block_indices}`);
   console.log(`  mother:         ${state.mother_url}`);
-  console.log(`  public_ip:      ${state.public_ip}`);
+  console.log(`  tunnel:         ${state.tunnel_url || state.shard_manager_url || "—"}`);
+  console.log(`  hedera:         ${state.hedera_account_id || "—"}`);
   try {
-    const statusHost = "127.0.0.1";
-    const res = await fetch(`http://${statusHost}:${SHARD_PORT}/status`);
+    const res = await fetch(`http://127.0.0.1:${SHARD_PORT}/status`);
     if (res.ok) {
       const st = await res.json();
       console.log(`  petals_running: ${st.running}`);
@@ -376,10 +366,12 @@ async function doLeave() {
     p.log.warn(`Mother leave call failed: ${err.message}`);
   }
   try {
-    const statusHost = "127.0.0.1";
-    await fetch(`http://${statusHost}:${SHARD_PORT}/stop`, { method: "POST" });
+    await fetch(`http://127.0.0.1:${SHARD_PORT}/stop`, { method: "POST" });
   } catch {
     /* ignore */
+  }
+  if (state.tunnel_pid) {
+    stopTunnelProcess(state.tunnel_pid);
   }
   clearState();
   spin.stop("Left swarm");

@@ -1,6 +1,6 @@
 {
   "name": "blitzwing",
-  "version": "0.1.10",
+  "version": "0.2.2",
   "description": "Interactive setup wizard to join a Blitzwing Petals mother swarm as a compute contributor",
   "bin": {
     "blitzwing": "bin/blitzwing.js"
@@ -12,6 +12,7 @@
   "files": [
     "bin",
     "src",
+    "runtime",
     "README.md"
   ],
   "keywords": [
@@ -22,7 +23,7 @@
   ],
   "license": "MIT",
   "config": {
-    "discoveryUrl": "http://35.238.86.1:9000"
+    "discoveryUrl": "http://35.226.124.189:9000"
   },
   "dependencies": {
     "@clack/prompts": "^0.9.1",
