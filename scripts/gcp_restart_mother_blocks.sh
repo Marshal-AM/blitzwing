@@ -53,5 +53,9 @@ for i in $(seq 1 60); do
   fi
   sleep 5
 done
-curl -sS http://127.0.0.1:8000/v1/hosts; echo
+# Gateway may not be up yet during clean restart — probe orch registry instead.
+curl -sS -m 5 http://127.0.0.1:8002/v1/hosts 2>/dev/null \
+  || curl -sS -m 5 http://127.0.0.1:8000/v1/hosts 2>/dev/null \
+  || true
+echo
 echo MOTHER_PETALS_OK

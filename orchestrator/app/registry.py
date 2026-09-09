@@ -226,6 +226,16 @@ class SwarmRegistry:
                 raise ValueError(f"layers must be <= {self.total_layers - 1}")
             wallet = validate_hedera_account_id(hedera_account_id)
 
+            # Only one pending join at a time. A second ready() can shrink the donor
+            # past an earlier pending reservation and punch a permanent coverage hole.
+            pending = [h for h in self.hosts.values() if h.status == "pending"]
+            if pending:
+                p = pending[0]
+                raise RuntimeError(
+                    f"Another join is still pending ({p.host_id} {p.block_indices}). "
+                    "Wait for it to finish or time out before joining again."
+                )
+
             donor = self._largest_donor_locked()
             if not donor:
                 raise RuntimeError("No online donor available")
@@ -289,6 +299,22 @@ class SwarmRegistry:
             if not donor or not shrink_to:
                 raise RuntimeError("Join record missing donor shrink plan")
 
+            # Refuse to shrink past another still-pending reservation on this donor.
+            shrink_start, shrink_end = parse_range(shrink_to)
+            for other in self.hosts.values():
+                if (
+                    other.host_id == host_id
+                    or other.status != "pending"
+                    or other.donor_host_id != donor_id
+                ):
+                    continue
+                p_start, p_end = parse_range(other.block_indices)
+                if not (shrink_start <= p_start and p_end <= shrink_end):
+                    raise RuntimeError(
+                        f"Cannot complete ready for {host_id}: pending host "
+                        f"{other.host_id} still holds {other.block_indices}"
+                    )
+
             # Shrink donor via its shard manager (outside lock briefly).
             # Do not rewrite the donor's initial_peers on handoff — replacing them with
             # bootstrap/self addrs causes Petals to fail reconnecting after reload.
@@ -334,6 +360,16 @@ class SwarmRegistry:
                 host.status = "online"
             return host
 
+    def _range_covered_by_online(self, block_indices: str, *, skip_host_id: Optional[str] = None) -> bool:
+        p_start, p_end = parse_range(block_indices)
+        for h in self.hosts.values():
+            if h.host_id == skip_host_id or h.status != "online":
+                continue
+            a, b = parse_range(h.block_indices)
+            if a <= p_start and p_end <= b:
+                return True
+        return False
+
     def leave(self, host_id: str) -> None:
         with self._lock:
             host = self.hosts.get(host_id)
@@ -341,9 +377,17 @@ class SwarmRegistry:
                 raise KeyError(host_id)
             if host.role == "mother":
                 raise ValueError("Cannot leave as mother via this API")
-            # Pending hosts never shrunk the donor — reclaiming would be wrong and
-            # can leave permanent holes (e.g. 18:22) after cleanup of failed joins.
-            range_to_reclaim = host.block_indices if host.status == "online" else None
+            # Online leave → reclaim onto mother/adjacent.
+            # Pending leave → normally no Petals reclaim (donor never shrunk). If a later
+            # ready() already punched a hole past this reservation, reclaim the hole.
+            if host.status == "online":
+                range_to_reclaim = host.block_indices
+            elif host.status == "pending" and not self._range_covered_by_online(
+                host.block_indices, skip_host_id=host.host_id
+            ):
+                range_to_reclaim = host.block_indices
+            else:
+                range_to_reclaim = None
             del self.hosts[host_id]
 
         if range_to_reclaim:
@@ -374,24 +418,27 @@ class SwarmRegistry:
             self.persist()
         return reclaimed
 
-    def reap_stale_pending(self, ttl_seconds: int = 300) -> List[str]:
+    def reap_stale_pending(self, ttl_seconds: int = 60) -> List[str]:
         """Remove pending hosts that never completed the ready handshake."""
         now = int(time.time())
         removed: List[str] = []
         with self._lock:
             stale_pending = [
-                h
+                h.host_id
                 for h in self.hosts.values()
                 if h.role != "mother" and h.status == "pending" and now - h.joined_at > ttl_seconds
             ]
-            for host in stale_pending:
+        for host_id in stale_pending:
+            try:
                 logger.warning(
-                    "Removing stale pending host %s (joined %ss ago, never ready)",
-                    host.host_id,
-                    now - host.joined_at,
+                    "Removing stale pending host %s (never ready within %ss)",
+                    host_id,
+                    ttl_seconds,
                 )
-                del self.hosts[host.host_id]
-                removed.append(host.host_id)
+                self.leave(host_id)
+                removed.append(host_id)
+            except Exception:  # noqa: BLE001
+                logger.exception("Failed to remove stale pending %s", host_id)
         if removed:
             self.persist()
         return removed
@@ -412,42 +459,55 @@ class SwarmRegistry:
                 return h
         return None
 
+    def _can_merge_ranges(self, donor: HostRecord, r_start: int, r_end: int) -> Optional[str]:
+        d_start, d_end = parse_range(donor.block_indices)
+        if d_end == r_start:
+            return format_range(d_start, r_end)
+        if r_end == d_start:
+            return format_range(r_start, d_end)
+        occupied = []
+        for h in self.hosts.values():
+            if h.host_id == donor.host_id or h.status != "online":
+                continue
+            occupied.append(parse_range(h.block_indices))
+        new_start, new_end = min(d_start, r_start), max(d_end, r_end)
+        conflict = any(not (new_end <= a or new_start >= b) for a, b in occupied)
+        if conflict:
+            return None
+        return format_range(new_start, new_end)
+
     def _reclaim_range(self, block_indices: str) -> None:
-        """Return reclaimed contributor layers to the mother node (extend Petals range)."""
+        """Return reclaimed contributor layers to the mother node (or adjacent host)."""
         with self._lock:
             r_start, r_end = parse_range(block_indices)
-            donor = self._mother_locked()
-            if not donor:
-                donor = self._find_adjacent_donor(r_start, r_end) or self._largest_donor_locked()
-            if not donor:
+            candidates: List[HostRecord] = []
+            mother = self._mother_locked()
+            if mother:
+                candidates.append(mother)
+            adjacent = self._find_adjacent_donor(r_start, r_end)
+            if adjacent and adjacent not in candidates:
+                candidates.append(adjacent)
+            largest = self._largest_donor_locked()
+            if largest and largest not in candidates:
+                candidates.append(largest)
+
+            chosen: Optional[HostRecord] = None
+            new_range: Optional[str] = None
+            for donor in candidates:
+                merged = self._can_merge_ranges(donor, r_start, r_end)
+                if merged:
+                    chosen = donor
+                    new_range = merged
+                    # Prefer mother when it can absorb the range.
+                    if donor.role == "mother":
+                        break
+
+            if not chosen or not new_range:
                 logger.error("No donor to reclaim range %s", block_indices)
                 return
 
-            d_start, d_end = parse_range(donor.block_indices)
-
-            if d_end == r_start:
-                new_range = format_range(d_start, r_end)
-            elif r_end == d_start:
-                new_range = format_range(r_start, d_end)
-            else:
-                occupied = []
-                for h in self.hosts.values():
-                    if h.host_id == donor.host_id or h.status != "online":
-                        continue
-                    occupied.append(parse_range(h.block_indices))
-                new_start, new_end = min(d_start, r_start), max(d_end, r_end)
-                conflict = any(not (new_end <= a or new_start >= b) for a, b in occupied)
-                if conflict:
-                    logger.error(
-                        "Cannot safely reclaim %s onto donor %s (non-contiguous)",
-                        block_indices,
-                        donor.host_id,
-                    )
-                    return
-                new_range = format_range(new_start, new_end)
-
-            donor_url = donor.shard_manager_url
-            donor_id = donor.host_id
+            donor_url = chosen.shard_manager_url
+            donor_id = chosen.host_id
 
         logger.info(
             "Reclaiming %s onto %s -> %s",

@@ -42,6 +42,7 @@ class Settings:
     total_layers: int = 22
     mother_shard_manager_url: str = "http://127.0.0.1:8001"
     heartbeat_ttl_seconds: int = 60
+    pending_ttl_seconds: int = 60
     reaper_interval_seconds: int = 15
     heartbeat_interval_seconds: int = 20
     ready_verify_timeout_seconds: int = 120
@@ -83,6 +84,9 @@ class Settings:
                 "MOTHER_SHARD_MANAGER_URL", cls.mother_shard_manager_url
             ).rstrip("/"),
             heartbeat_ttl_seconds=int(os.getenv("HEARTBEAT_TTL_SECONDS", str(cls.heartbeat_ttl_seconds))),
+            pending_ttl_seconds=int(
+                os.getenv("PENDING_TTL_SECONDS", str(cls.pending_ttl_seconds))
+            ),
             reaper_interval_seconds=int(
                 os.getenv("REAPER_INTERVAL_SECONDS", str(cls.reaper_interval_seconds))
             ),

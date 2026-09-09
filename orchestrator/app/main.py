@@ -70,7 +70,9 @@ async def _reaper_loop() -> None:
         await asyncio.sleep(settings.reaper_interval_seconds)
         try:
             registry = get_registry()
-            removed = await asyncio.to_thread(registry.reap_stale_pending, 300)
+            removed = await asyncio.to_thread(
+                registry.reap_stale_pending, settings.pending_ttl_seconds
+            )
             if removed:
                 logger.info("Removed stale pending hosts: %s", removed)
             reaped = await asyncio.to_thread(registry.reap_stale, settings.heartbeat_ttl_seconds)
@@ -106,7 +108,9 @@ async def lifespan(app: FastAPI):
     )
 
     try:
-        removed = await asyncio.to_thread(registry.reap_stale_pending, 300)
+        removed = await asyncio.to_thread(
+            registry.reap_stale_pending, settings.pending_ttl_seconds
+        )
         if removed:
             logger.info("Startup: removed stale pending hosts %s", removed)
         reaped = await asyncio.to_thread(registry.reap_stale, settings.heartbeat_ttl_seconds)
