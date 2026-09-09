@@ -301,6 +301,7 @@ def _prewarm_local_runner() -> None:
 
 @app.on_event("startup")
 def on_startup() -> None:
+    manager.last_exit_code = None
     if manager._auto_start:
         try:
             manager.start(bootstrap=manager.new_swarm)

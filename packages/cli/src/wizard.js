@@ -8,6 +8,7 @@ import {
   ensureVenvAndPetals,
   startShardManagerProcess,
   waitForShardRunning,
+  stopLocalContributorStack,
   syncRuntimeFiles,
   venvPython,
 } from "./install.js";
@@ -370,6 +371,7 @@ async function doLeave() {
   } catch {
     /* ignore */
   }
+  stopLocalContributorStack([state.shard_pid, state.tunnel_pid].filter(Boolean));
   if (state.tunnel_pid) {
     stopTunnelProcess(state.tunnel_pid);
   }

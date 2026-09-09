@@ -10,6 +10,72 @@ const PACKAGE_ROOT = path.join(__dirname, "..");
 const RUNTIME_SRC = path.join(PACKAGE_ROOT, "runtime");
 const RUNTIME_DEST = path.join(HOME_DIR, "runtime");
 
+function sleep(ms) {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+/**
+ * Kill leftover contributor shard/Petals processes so a new join does not talk to a
+ * stale uvicorn that still reports last_exit_code=-15 (SIGTERM from a prior leave).
+ */
+export function stopLocalContributorStack(extraPids = []) {
+  for (const pid of extraPids) {
+    if (!pid || !Number.isFinite(Number(pid))) continue;
+    try {
+      process.kill(Number(pid), "SIGTERM");
+    } catch {
+      /* already gone */
+    }
+  }
+
+  if (process.platform === "win32") {
+    for (const port of [SHARD_PORT, PETALS_PORT]) {
+      try {
+        const out = execFileSync("netstat", ["-ano"], { encoding: "utf8" });
+        const re = new RegExp(`:${port}\\s+.*LISTENING\\s+(\\d+)`, "i");
+        const m = out.match(re);
+        if (m) {
+          execFileSync("taskkill", ["/PID", m[1], "/T", "/F"], { stdio: "ignore" });
+        }
+      } catch {
+        /* ignore */
+      }
+    }
+    return;
+  }
+
+  try {
+    execFileSync(
+      "bash",
+      [
+        "-lc",
+        [
+          `fuser -k ${SHARD_PORT}/tcp ${PETALS_PORT}/tcp 2>/dev/null || true`,
+          `pkill -f 'uvicorn app:app --host 0.0.0.0 --port ${SHARD_PORT}' 2>/dev/null || true`,
+          `pkill -f 'petals.cli.run_server' 2>/dev/null || true`,
+          "sleep 1",
+        ].join("; "),
+      ],
+      { stdio: "ignore" }
+    );
+  } catch {
+    /* ignore */
+  }
+}
+
+function petalsLogShowsSessionStart(logPath) {
+  try {
+    if (!fs.existsSync(logPath)) return false;
+    const text = fs.readFileSync(logPath, "utf8");
+    return (
+      /Starting Petals:/.test(text) ||
+      /\[INFO\] Started\b/.test(text) ||
+      /Running a server on/.test(text)
+    );
+  } catch {
+    return false;
+  }
+}
 function venvPython() {
   if (process.platform === "win32") {
     return path.join(VENV_PATH, "Scripts", "python.exe");
@@ -226,7 +292,16 @@ export function writeLocalShardManager() {
 }
 
 export function startShardManagerProcess({ python, env, logPath }) {
+  // Always clear stale listeners before binding — leave() used to stop Petals only.
+  stopLocalContributorStack();
   const appPath = syncRuntimeFiles();
+  fs.mkdirSync(HOME_DIR, { recursive: true });
+  // Fresh logs so wait/error tails are from this session.
+  try {
+    fs.writeFileSync(path.join(HOME_DIR, "petals.log"), "");
+  } catch {
+    /* ignore */
+  }
   const out = fs.openSync(logPath, "a");
   const petalsPy = petalsImportable(venvPython()) ? venvPython() : python;
   const child = spawn(
@@ -253,28 +328,38 @@ export async function waitForShardRunning({ timeoutMs = 300000, statusHost } = {
   const host = statusHost || process.env.BLITZWING_STATUS_HOST || "127.0.0.1";
   const petalsLog = path.join(HOME_DIR, "petals.log");
   const start = Date.now();
+  let sawRunning = false;
+
   while (Date.now() - start < timeoutMs) {
     try {
       const res = await fetch(`http://${host}:${SHARD_PORT}/status`);
       if (res.ok) {
         const body = await res.json();
-        if (body.running && body.pid) return body;
+        if (body.running && body.pid) {
+          sawRunning = true;
+          return body;
+        }
         if (body.last_exit_code != null) {
-          const tail = fs.existsSync(petalsLog)
-            ? fs.readFileSync(petalsLog, "utf8").trim().split("\n").slice(-5).join("\n")
-            : "";
-          throw new Error(
-            `Petals exited (code ${body.last_exit_code}). ${tail || "See " + petalsLog}`
-          );
+          // A prior leave/stop leaves uvicorn up with last_exit_code=-15. Ignore that
+          // until this session's Petals has actually started (or we already saw running).
+          const sessionStarted = petalsLogShowsSessionStart(petalsLog);
+          if (sawRunning || sessionStarted) {
+            const tail = fs.existsSync(petalsLog)
+              ? fs.readFileSync(petalsLog, "utf8").trim().split("\n").slice(-8).join("\n")
+              : "";
+            throw new Error(
+              `Petals exited (code ${body.last_exit_code}). ${tail || "See " + petalsLog}`
+            );
+          }
         }
       }
     } catch (err) {
       if (err instanceof Error && err.message.startsWith("Petals exited")) throw err;
     }
-    await new Promise((r) => setTimeout(r, 2000));
+    await sleep(2000);
   }
   const tail = fs.existsSync(petalsLog)
-    ? fs.readFileSync(petalsLog, "utf8").trim().split("\n").slice(-5).join("\n")
+    ? fs.readFileSync(petalsLog, "utf8").trim().split("\n").slice(-8).join("\n")
     : "";
   throw new Error(
     `Timed out waiting for Petals on http://${host}:${SHARD_PORT}/status. ${tail || "See " + petalsLog}`
