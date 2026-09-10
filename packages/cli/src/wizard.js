@@ -284,8 +284,9 @@ async function wizard(args) {
   spin.stop("Petals is serving your layers");
 
   spin.start("Finalizing handoff with mother…");
+  let readyResult;
   try {
-    await readyHost(selected.mother_url, {
+    readyResult = await readyHost(selected.mother_url, {
       host_id: assignment.host_id,
     });
   } catch (err) {
@@ -310,6 +311,7 @@ async function wizard(args) {
     shard_pid: pid,
     discovery_url: args.discoveryUrl,
     hedera_account_id: hederaAccountId,
+    ens_name: readyResult?.ens_name || null,
     joined_at: new Date().toISOString(),
   };
   saveState(state);
@@ -318,8 +320,10 @@ async function wizard(args) {
     hostId: state.host_id,
   });
 
+  const ensLine = state.ens_name ? `ENS name: ${color.cyan(state.ens_name)}\n` : "";
   p.outro(
     `${color.green("You are online.")} Hosting ${color.cyan(String(state.layers_hosted))} layers of ${color.cyan(state.model)} at ${state.block_indices}\n` +
+      ensLine +
       `Tunnel: ${color.cyan(tunnel.url)}\n` +
       `Run ${color.bold("blitzwing status")} anytime, or ${color.bold("blitzwing leave")} to exit.`
   );
@@ -339,6 +343,7 @@ async function showStatus() {
   console.log(`  mother:         ${state.mother_url}`);
   console.log(`  tunnel:         ${state.tunnel_url || state.shard_manager_url || "—"}`);
   console.log(`  hedera:         ${state.hedera_account_id || "—"}`);
+  console.log(`  ens_name:       ${state.ens_name || "—"}`);
   try {
     const res = await fetch(`http://127.0.0.1:${SHARD_PORT}/status`);
     if (res.ok) {

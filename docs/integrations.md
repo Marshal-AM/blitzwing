@@ -19,6 +19,24 @@ Alright — let's go maximalist. I pulled the actual ENSv2 docs and Hedera's ser
 
 That's genuinely every documented ENSv2 primitive doing real work — nothing there is decorative.
 
+## ENS backbone (implemented)
+
+See [ens.md](ens.md) and [ens-setup.md](ens-setup.md).
+
+`join/ready → ens-service (Sepolia) → subname + text records → payout verify → HCS with ens_name`
+
+| Backbone item | Status |
+|---|---|
+| Host subnames under `blitzwing.eth` | **Implemented** (`packages/ens-service`) |
+| Resolver records (Hedera + layers) | **Implemented** |
+| Orchestrator ENS lookup / verify before payout | **Implemented** (`orchestrator/app/ens_client.py`) |
+| Receipts + HCS include `ens_name` | **Implemented** |
+| Consumer independent verify | **Implemented** (`examples/ens_verify_client`) |
+| Rebalance updates ENS records | **Implemented** (ready/leave hooks) |
+| Wildcards, aliasing, EAC demos | Future |
+
+Company operator pays all Sepolia costs; contributors only provide Hedera `0.0.N`.
+
 ## Hedera x402 core loop (implemented)
 
 See [x402-hedera.md](x402-hedera.md) for the working spine:

@@ -101,6 +101,7 @@ class HederaEscrowService:
             host_rows.append(
                 {
                     "host_id": host.host_id,
+                    "ens_name": host.ens_name,
                     "hedera_account_id": host.hedera_account_id,
                     "layers": host.layers_hosted,
                     "amount_tinybars": amount,

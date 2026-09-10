@@ -142,6 +142,20 @@ async function main(): Promise<void> {
   console.log(`status: ${res.status}`);
   console.log(typeof data === "string" ? data : JSON.stringify(data, null, 2));
 
+  if (data && typeof data === "object" && "blitzwing_payment" in data) {
+    const payment = (data as { blitzwing_payment?: { hosts?: Array<{ ens_name?: string; host_id?: string }> } })
+      .blitzwing_payment;
+    if (payment?.hosts?.length) {
+      console.log("--- ENS hosts (from receipt) ---");
+      for (const h of payment.hosts) {
+        console.log(`  ${h.ens_name || h.host_id || "?"} → ${(h as { hedera_account_id?: string }).hedera_account_id}`);
+      }
+      console.log(
+        "Verify independently: cd examples/ens_verify_client && npm start -- '<paste blitzwing_payment JSON>'",
+      );
+    }
+  }
+
   const paymentHeader =
     res.headers.get("payment-response") ||
     res.headers.get("x-payment-response");

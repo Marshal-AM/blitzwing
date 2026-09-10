@@ -14,6 +14,13 @@ from fastapi.responses import StreamingResponse
 from orchestrator.app.config import get_settings
 from orchestrator.app.engine import get_engine, new_completion_id, now_ts
 from orchestrator.app.errors import MissingBlocksServiceError, HttpInferenceError
+from orchestrator.app.ens_client import (
+    EnsClientError,
+    get_ens_client,
+    sync_host_ens_after_ready,
+    sync_leave_ens,
+    sync_mother_ens,
+)
 from orchestrator.app.hedera_payouts import get_payout_service
 from orchestrator.app.registry import get_registry, init_registry
 from orchestrator.app.peer_verify import contributor_precheck_passed
@@ -106,6 +113,16 @@ async def lifespan(app: FastAPI):
     await asyncio.to_thread(
         _sync_mother_shard_blocks, registry, settings.mother_shard_manager_url
     )
+
+    if settings.ens_enabled:
+        try:
+            mother = registry.get_host("mother")
+            await asyncio.to_thread(sync_mother_ens, mother)
+            ens = get_ens_client(settings)
+            await asyncio.to_thread(ens.replay_pending, registry.list_hosts())
+            await asyncio.to_thread(ens.reconcile_registry, registry.list_hosts())
+        except Exception:  # noqa: BLE001
+            logger.exception("ENS startup bootstrap failed (inference may still work)")
 
     try:
         removed = await asyncio.to_thread(
@@ -210,21 +227,28 @@ async def list_models() -> ModelList:
 async def list_hosts() -> HostListResponse:
     settings = get_settings()
     registry = get_registry()
-    hosts = [
-        HostPublic(
-            host_id=h.host_id,
-            role=h.role,
-            model=h.model,
-            block_indices=h.block_indices,
-            layers_hosted=h.layers_hosted,
-            status=h.status,
-            public_ip=h.public_ip,
-            last_heartbeat=h.last_heartbeat,
-            hedera_account_id=h.hedera_account_id,
-            petals_running=h.petals_running,
+    ens = get_ens_client(settings) if settings.ens_enabled else None
+    hosts = []
+    for h in registry.list_hosts():
+        ens_verified = None
+        if ens and ens.enabled and h.ens_name:
+            ens_verified = await asyncio.to_thread(ens.verify_host, h)
+        hosts.append(
+            HostPublic(
+                host_id=h.host_id,
+                role=h.role,
+                model=h.model,
+                block_indices=h.block_indices,
+                layers_hosted=h.layers_hosted,
+                status=h.status,
+                public_ip=h.public_ip,
+                last_heartbeat=h.last_heartbeat,
+                hedera_account_id=h.hedera_account_id,
+                ens_name=h.ens_name,
+                ens_verified=ens_verified,
+                petals_running=h.petals_running,
+            )
         )
-        for h in registry.list_hosts()
-    ]
     return HostListResponse(
         model=settings.model_name,
         total_layers=settings.total_layers,
@@ -327,7 +351,9 @@ async def hosts_ready(body: HostReadyRequest) -> dict:
                 "block_indices": pending.block_indices,
                 "layers_hosted": pending.layers_hosted,
                 "hedera_account_id": pending.hedera_account_id,
+                "ens_name": pending.ens_name,
             }
+        donor_id = pending.donor_host_id
         block_range = pending.pending_range or pending.block_indices
 
         if body.peer_multiaddr:
@@ -398,6 +424,19 @@ async def hosts_ready(body: HostReadyRequest) -> dict:
             host = await asyncio.to_thread(registry.mark_ready, body.host_id, body.peer_multiaddr)
             await asyncio.to_thread(engine.schedule_reload, delay_seconds=12.0, max_attempts=6)
 
+        if settings.ens_enabled:
+            donor = await asyncio.to_thread(registry.get_host, donor_id) if donor_id else None
+            try:
+                ens_name = await asyncio.to_thread(sync_host_ens_after_ready, host, donor)
+                host = await asyncio.to_thread(registry.get_host, body.host_id)
+                host.ens_name = ens_name or host.ens_name
+            except EnsClientError as exc:
+                logger.exception("ENS write failed after ready for %s", body.host_id)
+                raise HTTPException(
+                    status_code=500,
+                    detail={"message": str(exc), "ens_error": str(exc), "host_id": body.host_id},
+                ) from exc
+
         logger.info("Handoff complete: %s is online with blocks %s", body.host_id, host.block_indices)
 
     except KeyError as exc:
@@ -417,6 +456,7 @@ async def hosts_ready(body: HostReadyRequest) -> dict:
         "block_indices": host.block_indices,
         "layers_hosted": host.layers_hosted,
         "hedera_account_id": host.hedera_account_id,
+        "ens_name": host.ens_name,
     }
 
 
@@ -466,9 +506,21 @@ async def hosts_heartbeat(body: HostHeartbeatRequest) -> dict:
 
 @app.post("/v1/hosts/leave")
 async def hosts_leave(body: HostLeaveRequest) -> dict:
+    settings = get_settings()
     registry = get_registry()
     try:
+        leaver = await asyncio.to_thread(registry.get_host, body.host_id)
         await asyncio.to_thread(registry.leave, body.host_id)
+        if settings.ens_enabled:
+            reclaim = await asyncio.to_thread(registry.get_host, "mother")
+            try:
+                await asyncio.to_thread(sync_leave_ens, leaver, reclaim)
+            except EnsClientError as exc:
+                logger.exception("ENS leave sync failed for %s", body.host_id)
+                raise HTTPException(
+                    status_code=500,
+                    detail={"message": str(exc), "ens_error": str(exc)},
+                ) from exc
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:

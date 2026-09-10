@@ -111,6 +111,7 @@ class HostJoinResponse(BaseModel):
     max_layers_available: int
     total_layers: int
     hedera_account_id: str
+    ens_name: Optional[str] = None
 
 
 class HostReadyRequest(BaseModel):
@@ -152,6 +153,9 @@ class HostPublic(BaseModel):
     public_ip: Optional[str] = None
     last_heartbeat: int
     hedera_account_id: Optional[str] = None
+    ens_name: Optional[str] = None
+    ens_verified: Optional[bool] = None
+    petals_running: Optional[bool] = None
 
 
 class HostListResponse(BaseModel):

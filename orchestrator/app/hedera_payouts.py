@@ -29,6 +29,7 @@ class HostPayout:
     hedera_account_id: str
     layers: int
     amount_tinybars: int
+    ens_name: Optional[str] = None
 
 
 @dataclass
@@ -132,7 +133,26 @@ class HederaPayoutService:
             logger.exception("Failed to create HCS topic (audit logs will be skipped)")
             return None
 
+    def _verify_hosts_for_payout(self, hosts: List[HostRecord]) -> None:
+        if not self.settings.ens_enabled:
+            return
+        from orchestrator.app.ens_client import get_ens_client
+
+        ens = get_ens_client(self.settings)
+        failures: List[str] = []
+        for h in hosts:
+            if not h.hedera_account_id or h.layers_hosted <= 0:
+                continue
+            if self.settings.ens_strict and not h.ens_name:
+                failures.append(f"{h.host_id}: missing ens_name")
+                continue
+            if h.ens_name and not ens.verify_host(h):
+                failures.append(f"{h.host_id}: ENS verification failed for {h.ens_name}")
+        if failures:
+            raise RuntimeError("ENS payout verification failed: " + "; ".join(failures))
+
     def plan_payouts(self, hosts: List[HostRecord]) -> List[HostPayout]:
+        self._verify_hosts_for_payout(hosts)
         cpl = int(self.settings.cost_per_layer_tinybars)
         out: List[HostPayout] = []
         for h in hosts:
@@ -144,6 +164,7 @@ class HederaPayoutService:
                     hedera_account_id=h.hedera_account_id,
                     layers=h.layers_hosted,
                     amount_tinybars=h.layers_hosted * cpl,
+                    ens_name=h.ens_name,
                 )
             )
         return out
@@ -254,6 +275,7 @@ class HederaPayoutService:
         host_rows = [
             {
                 "host_id": p.host_id,
+                "ens_name": p.ens_name,
                 "hedera_account_id": p.hedera_account_id,
                 "layers": p.layers,
                 "amount_tinybars": p.amount_tinybars,

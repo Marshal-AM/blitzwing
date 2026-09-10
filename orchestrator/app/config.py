@@ -60,6 +60,11 @@ class Settings:
     escrow_contract_id: Optional[str] = None
     escrow_evm_address: Optional[str] = None
     escrow_operator_private_key: Optional[str] = None
+    # ENS (Sepolia identity backbone)
+    ens_enabled: bool = False
+    ens_strict: bool = False
+    ens_service_url: str = "http://127.0.0.1:8792"
+    ens_parent_name: str = "blitzwing.eth"
 
     @property
     def request_price_tinybars(self) -> int:
@@ -115,6 +120,10 @@ class Settings:
             escrow_operator_private_key=(
                 os.getenv("ESCROW_OPERATOR_PRIVATE_KEY") or os.getenv("MOTHER_PRIVATE_KEY") or None
             ),
+            ens_enabled=_truthy(os.getenv("ENS_ENABLED"), default=False),
+            ens_strict=_truthy(os.getenv("ENS_STRICT"), default=False),
+            ens_service_url=(os.getenv("ENS_SERVICE_URL") or "http://127.0.0.1:8792").rstrip("/"),
+            ens_parent_name=(os.getenv("ENS_PARENT_NAME") or "blitzwing.eth").lower(),
         )
 
 

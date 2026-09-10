@@ -80,7 +80,7 @@ class HostRecord:
     donor_host_id: Optional[str] = None
     donor_shrink_to: Optional[str] = None
     hedera_account_id: Optional[str] = None
-    petals_running: Optional[bool] = None
+    ens_name: Optional[str] = None
     petals_running: Optional[bool] = None
 
 
@@ -348,6 +348,15 @@ class SwarmRegistry:
             host = self.hosts.get(host_id)
             if not host:
                 raise KeyError(host_id)
+            return host
+
+    def set_ens_name(self, host_id: str, ens_name: str) -> HostRecord:
+        with self._lock:
+            host = self.hosts.get(host_id)
+            if not host:
+                raise KeyError(host_id)
+            host.ens_name = ens_name
+            self.persist()
             return host
 
     def heartbeat(self, host_id: str) -> HostRecord:
