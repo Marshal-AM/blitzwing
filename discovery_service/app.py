@@ -11,6 +11,7 @@ from typing import Generator, List, Optional
 from urllib.parse import unquote
 
 from fastapi import Depends, FastAPI, Header, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 DB_PATH = Path(os.getenv("DISCOVERY_DB_PATH", str(Path.home() / ".blitzwing" / "discovery.db")))
@@ -75,6 +76,13 @@ def require_admin(authorization: Optional[str] = Header(default=None)) -> None:
 
 
 app = FastAPI(title="Blitzwing Discovery Service", version="0.1.0")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 @app.on_event("startup")

@@ -43,8 +43,11 @@ cd "${ROOT}/packages/ens-service"
 npm install --silent 2>/dev/null || npm install
 nohup npm start >"${LOG}/ens-service.log" 2>&1 &
 echo $! >"${LOG}/ens-service.pid"
-sleep 2
-curl -sf "${ENS_SERVICE_URL}/health" || { echo "ENS service failed to start"; exit 1; }
+for i in $(seq 1 30); do
+  curl -sf "${ENS_SERVICE_URL}/health" >/dev/null && break
+  sleep 1
+done
+curl -sf "${ENS_SERVICE_URL}/health" || { echo "ENS service failed to start"; tail -20 "${LOG}/ens-service.log"; exit 1; }
 
 echo "==> Starting orchestrator"
 cd "${ROOT}"

@@ -2,7 +2,7 @@
 export const DEFAULT_DISCOVERY_URL =
   process.env.BLITZWING_DISCOVERY_URL ||
   process.env.npm_package_config_discoveryUrl ||
-  "http://34.60.5.221:9000";
+  "http://136.113.30.202:9000";
 
 export const HOME_DIR = process.env.BLITZWING_HOME || `${process.env.HOME || process.env.USERPROFILE}/.blitzwing`;
 export const STATE_PATH = `${HOME_DIR}/contributor.json`;

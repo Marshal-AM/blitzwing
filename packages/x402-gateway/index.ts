@@ -15,6 +15,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { serve } from "@hono/node-server";
 import { Hono } from "hono";
+import { cors } from "hono/cors";
 import { config } from "dotenv";
 import { x402ResourceServer } from "@x402/core/server";
 import {
@@ -109,6 +110,15 @@ async function proxyUpstream(
 
 async function createApp(): Promise<Hono> {
   const app = new Hono();
+
+  app.use(
+    "*",
+    cors({
+      origin: "*",
+      allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+      allowHeaders: ["*"],
+    }),
+  );
 
   app.get("/health", async (c) => {
     const up = await proxyUpstream("/health", { method: "GET" });

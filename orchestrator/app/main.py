@@ -9,6 +9,7 @@ from typing import AsyncIterator, Optional
 
 import httpx
 from fastapi import FastAPI, Header, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 
 from orchestrator.app.config import get_settings
@@ -183,6 +184,13 @@ app = FastAPI(
     version="0.3.0",
     description="OpenAI-compatible chat completions + mother swarm host registry + x402 Hedera payments.",
     lifespan=lifespan,
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 
