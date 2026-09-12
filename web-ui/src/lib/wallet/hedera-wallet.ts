@@ -32,8 +32,8 @@ async function createConnector(): Promise<DAppConnector> {
     url: typeof window !== "undefined" ? window.location.origin : "http://localhost:5173",
     icons: [
       typeof window !== "undefined"
-        ? `${window.location.origin}/favicon.ico`
-        : "http://localhost:5173/favicon.ico",
+        ? `${window.location.origin}/blitzwing_logo.png`
+        : "http://localhost:5173/blitzwing_logo.png",
     ],
   };
 
