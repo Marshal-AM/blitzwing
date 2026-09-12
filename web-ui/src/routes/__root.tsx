@@ -10,7 +10,7 @@ import {
 import { useEffect, type ReactNode } from "react";
 
 import appCss from "../styles.css?url";
-import { WalletProvider } from "@/components/wallet/WalletProvider";
+import { ClientWalletProvider } from "@/components/wallet/ClientWalletProvider";
 import { reportLovableError } from "../lib/lovable-error-reporting";
 
 function NotFoundComponent() {
@@ -120,10 +120,10 @@ function RootComponent() {
 
   return (
     <QueryClientProvider client={queryClient}>
-      <WalletProvider>
+      <ClientWalletProvider>
         {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
         <Outlet />
-      </WalletProvider>
+      </ClientWalletProvider>
     </QueryClientProvider>
   );
 }
