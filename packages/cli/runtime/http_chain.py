@@ -17,6 +17,22 @@ from tensor_codec import tensor_from_payload, tensor_to_payload
 logger = logging.getLogger(__name__)
 
 
+def _apply_repetition_penalty(
+    logits: torch.Tensor,
+    generated: Sequence[int],
+    penalty: float,
+) -> torch.Tensor:
+    if penalty <= 1.0 or not generated:
+        return logits
+    out = logits.clone()
+    for token_id in generated:
+        if out[token_id] < 0:
+            out[token_id] *= penalty
+        else:
+            out[token_id] /= penalty
+    return out
+
+
 def _is_public_http_url(url: str) -> bool:
     if not url:
         return False
@@ -171,6 +187,7 @@ class HttpChainInference:
         input_ids = tokenizer(prompt, return_tensors="pt")["input_ids"]
         prompt_tokens = int(input_ids.shape[-1])
         max_new_tokens = max(1, min(int(max_tokens), 512))
+        repetition_penalty = float(os.getenv("HTTP_CHAIN_REPETITION_PENALTY", "1.1"))
         hop_desc = " -> ".join(
             f"{h.get('host_id')}[{h.get('block_indices')}]" for h in hosts
         )
@@ -220,7 +237,11 @@ class HttpChainInference:
                     hidden = self.runner.forward_tail(hidden)
 
                 logits = self.runner.logits_from_hidden(hidden)
-                next_logits = logits[0, -1, :]
+                next_logits = _apply_repetition_penalty(
+                    logits[0, -1, :],
+                    generated,
+                    repetition_penalty,
+                )
 
                 if temperature <= 0:
                     next_id = int(torch.argmax(next_logits).item())

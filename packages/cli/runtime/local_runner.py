@@ -123,6 +123,30 @@ class LocalShardRunner:
             return m.transformer.word_embeddings(input_ids)
         raise RuntimeError("Could not locate embedding layer")
 
+    def _total_layers(self) -> int:
+        env_total = os.getenv("TOTAL_LAYERS", "").strip()
+        if env_total.isdigit():
+            return int(env_total)
+        m = self.model
+        config = getattr(m, "config", None)
+        if config is not None:
+            for key in ("num_hidden_layers", "n_layer", "num_layers"):
+                value = getattr(config, key, None)
+                if isinstance(value, int) and value > 0:
+                    return value
+        return self.block_end
+
+    def _is_tail_host(self) -> bool:
+        return self.block_end >= self._total_layers()
+
+    def _final_norm(self, hidden: torch.Tensor) -> torch.Tensor:
+        m = self.model
+        if hasattr(m, "model") and hasattr(m.model, "norm"):
+            return m.model.norm(hidden)
+        if hasattr(m, "transformer") and hasattr(m.transformer, "ln_f"):
+            return m.transformer.ln_f(hidden)
+        return hidden
+
     def _lm_head(self, hidden: torch.Tensor) -> torch.Tensor:
         m = self.model
         if hasattr(m, "lm_head"):
@@ -145,4 +169,6 @@ class LocalShardRunner:
         return hidden
 
     def logits_from_hidden(self, hidden: torch.Tensor) -> torch.Tensor:
+        if self._is_tail_host():
+            hidden = self._final_norm(hidden)
         return self._lm_head(hidden)
