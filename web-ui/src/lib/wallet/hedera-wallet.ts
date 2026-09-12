@@ -30,11 +30,7 @@ async function createConnector(): Promise<DAppConnector> {
     name: "Blitzwing",
     description: "Blitzwing distributed inference swarm console",
     url: typeof window !== "undefined" ? window.location.origin : "http://localhost:5173",
-    icons: [
-      typeof window !== "undefined"
-        ? `${window.location.origin}/blitzwing_logo.png`
-        : "http://localhost:5173/blitzwing_logo.png",
-    ],
+    icons: [] as string[],
   };
 
   const dApp = new DAppConnector(
