@@ -33,12 +33,29 @@ function createDebugVerifyPayerSignature() {
       console.log(`[VERIFY] tx type=${tx.constructor.name}`);
       
       // Get signatures from the transaction
-      const sigMap = (tx as any)._signedTransactions?.get(0)?.sigMap;
-      const sigPairs = sigMap?.sigPair || [];
-      console.log(`[VERIFY] signature count=${sigPairs.length}`);
-      for (const pair of sigPairs) {
-        const pubKeyHex = Buffer.from(pair.pubKeyPrefix || []).toString("hex");
-        console.log(`[VERIFY] sig pubKeyPrefix=${pubKeyHex.substring(0, 20)}...`);
+      const signedTxs = (tx as any)._signedTransactions;
+      const signedTx = signedTxs?.get(0);
+      console.log(`[VERIFY] signedTxs count=${signedTxs?.length || 0}`);
+      
+      if (signedTx) {
+        const bodyBytes = signedTx.bodyBytes;
+        console.log(`[VERIFY] bodyBytes length=${bodyBytes?.length || 0}`);
+        if (bodyBytes) {
+          const bodyHash = Buffer.from(bodyBytes).toString("hex").substring(0, 40);
+          console.log(`[VERIFY] bodyBytes hash prefix=${bodyHash}...`);
+        }
+        
+        const sigMap = signedTx.sigMap;
+        const sigPairs = sigMap?.sigPair || [];
+        console.log(`[VERIFY] signature count=${sigPairs.length}`);
+        for (const pair of sigPairs) {
+          const pubKeyHex = Buffer.from(pair.pubKeyPrefix || []).toString("hex");
+          const ed25519Sig = pair.ed25519 ? Buffer.from(pair.ed25519).toString("hex").substring(0, 40) : null;
+          const ecdsaSig = pair.ECDSASecp256k1 ? Buffer.from(pair.ECDSASecp256k1).toString("hex").substring(0, 40) : null;
+          console.log(`[VERIFY] sig pubKeyPrefix=${pubKeyHex.substring(0, 20)}...`);
+          console.log(`[VERIFY] sig ed25519=${ed25519Sig || "none"}`);
+          console.log(`[VERIFY] sig ecdsa=${ecdsaSig || "none"}`);
+        }
       }
       
       // Fetch payer's public key from mirror node
