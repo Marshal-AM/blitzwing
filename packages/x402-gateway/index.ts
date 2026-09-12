@@ -111,12 +111,33 @@ async function proxyUpstream(
 async function createApp(): Promise<Hono> {
   const app = new Hono();
 
+  // Browsers hide custom x402 headers unless explicitly exposed via CORS.
+  const x402ExposeHeaders = [
+    "payment-required",
+    "payment-response",
+    "payment-signature",
+    "PAYMENT-REQUIRED",
+    "PAYMENT-RESPONSE",
+    "PAYMENT-SIGNATURE",
+    "X-PAYMENT",
+    "X-PAYMENT-RESPONSE",
+  ];
+  const x402CorsHeaders: Record<string, string> = {
+    "access-control-allow-origin": "*",
+    "access-control-expose-headers": x402ExposeHeaders.join(", "),
+  };
+
+  function withX402Cors(headers: Record<string, string>): Record<string, string> {
+    return { ...x402CorsHeaders, ...headers };
+  }
+
   app.use(
     "*",
     cors({
       origin: "*",
       allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
       allowHeaders: ["*"],
+      exposeHeaders: x402ExposeHeaders,
     }),
   );
 
@@ -194,15 +215,16 @@ async function createApp(): Promise<Hono> {
 
       if (result.type === "payment-error") {
         const { status, headers, body } = result.response;
-        const outHeaders: Record<string, string> = {
-          "content-type": "application/json",
-        };
+        const outHeaders: Record<string, string> = {};
         for (const [k, v] of Object.entries(headers)) {
           outHeaders[k] = v;
         }
+        if (!outHeaders["content-type"]) {
+          outHeaders["content-type"] = "application/json";
+        }
         return new Response(
           typeof body === "string" ? body : JSON.stringify(body ?? {}),
-          { status, headers: outHeaders },
+          { status, headers: withX402Cors(outHeaders) },
         );
       }
 
@@ -227,7 +249,10 @@ async function createApp(): Promise<Hono> {
             }),
             {
               status: 402,
-              headers: { "content-type": "application/json", ...settleHeaders },
+              headers: withX402Cors({
+                "content-type": "application/json",
+                ...settleHeaders,
+              }),
             },
           );
         }
@@ -317,7 +342,10 @@ async function createApp(): Promise<Hono> {
           typeof responseBody === "string"
             ? responseBody
             : JSON.stringify(responseBody ?? {});
-        return new Response(finalBody, { status: up.status, headers: outHeaders });
+        return new Response(finalBody, {
+          status: up.status,
+          headers: withX402Cors(outHeaders),
+        });
       }
 
       // Protected route must not fall through unpaid.

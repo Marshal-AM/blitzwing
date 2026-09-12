@@ -9,11 +9,19 @@
     "start": "tsx index.ts"
   },
   "dependencies": {
+    "@hiero-ledger/proto": "2.25.0",
+    "@hiero-ledger/sdk": "2.79.0",
     "@hono/node-server": "^1.13.7",
     "@x402/core": "^2.18.0",
     "@x402/hedera": "^2.18.0",
     "dotenv": "^16.5.0",
     "hono": "^4.6.14"
+  },
+  "overrides": {
+    "@x402/hedera": {
+      "@hiero-ledger/sdk": "2.79.0",
+      "@hiero-ledger/proto": "2.25.0"
+    }
   },
   "devDependencies": {
     "@types/node": "^22.13.4",

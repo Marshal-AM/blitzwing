@@ -1,10 +1,14 @@
 import { x402Client } from "@x402/core/client";
 import { x402HTTPClient } from "@x402/core/http";
+import type { PaymentRequired } from "@x402/core/types";
 import { ExactHederaScheme } from "@x402/hedera/exact/client";
 import { API_CONFIG } from "@/config";
 import { createWalletHederaSigner } from "@/lib/wallet/wallet-x402-signer";
 
 const HEDERA_TESTNET = "hedera:testnet" as const;
+
+/** Same-origin proxy — browsers cannot read cross-origin PAYMENT-REQUIRED headers. */
+const X402_PROXY_URL = "/api/x402/chat";
 
 function headerMap(res: Response): (name: string) => string | null {
   return (name) => res.headers.get(name);
@@ -26,7 +30,18 @@ async function payOnce(
     .clone()
     .json()
     .catch(async () => first.clone().text());
-  const paymentRequired = x402.getPaymentRequiredResponse(headerMap(first), body);
+
+  let paymentRequired: PaymentRequired;
+  if (
+    body &&
+    typeof body === "object" &&
+    "x402Version" in body &&
+    (body as PaymentRequired).x402Version === 2
+  ) {
+    paymentRequired = body as PaymentRequired;
+  } else {
+    paymentRequired = x402.getPaymentRequiredResponse(headerMap(first), body);
+  }
   const payload = await x402.createPaymentPayload(paymentRequired);
   const payHeaders = x402.encodePaymentSignatureHeader(payload);
   const headers = new Headers(init?.headers);
@@ -48,8 +63,7 @@ export async function paidChatCompletion(
 ): Promise<PaidChatResult> {
   const model = options?.model ?? API_CONFIG.model;
   const maxTokens = options?.maxTokens ?? API_CONFIG.maxTokens;
-  const gatewayUrl = API_CONFIG.gatewayUrl.replace(/\/$/, "");
-  const url = `${gatewayUrl}/v1/chat/completions`;
+  const url = X402_PROXY_URL;
 
   const signer = createWalletHederaSigner(accountId);
   const x402 = new x402HTTPClient(

@@ -1,4 +1,4 @@
-import { AccountId, Hbar, type Transaction, type TransactionResponse } from "@hiero-ledger/sdk";
+import { AccountId, type Transaction } from "@hiero-ledger/sdk";
 import { ensureWalletReadyForSigning } from "./hashpack-connect";
 import { getDAppConnector } from "./hedera-wallet";
 
@@ -34,7 +34,8 @@ export async function walletSignTransaction(
   const dApp = await getDAppConnector();
   await ensureWalletReadyForSigning(dApp);
   const signer = dApp.getSigner(AccountId.fromString(accountId));
-  const tx = transaction.setMaxTransactionFee(new Hbar(5));
+  // Caller must set max fee before freeze; frozen txs cannot be modified.
+  const tx = transaction;
 
   if (typeof signer.signTransaction === "function") {
     return withWalletTimeout(signer.signTransaction(tx) as Promise<Transaction>, label);

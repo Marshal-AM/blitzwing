@@ -6,8 +6,7 @@ import {
   TokenId,
   TransactionId,
   TransferTransaction,
-  createHederaClient,
-} from "@x402/hedera";
+} from "@hiero-ledger/sdk";
 import { walletSignTransaction } from "./wallet-tx";
 
 function isHbarAsset(asset: string): boolean {
@@ -42,18 +41,11 @@ export function createWalletHederaSigner(accountId: string): ClientHederaSigner 
       }
 
       tx.setTransactionId(TransactionId.generate(AccountId.fromString(feePayer)));
-      const client = createHederaClient(requirements.network);
-      try {
-        tx.freezeWith(client);
-        const signed = await walletSignTransaction(
-          accountId,
-          tx,
-          "x402 payment",
-        );
-        return Buffer.from(signed.toBytes()).toString("base64");
-      } finally {
-        client.close();
-      }
+
+      // HashPack must freeze + sign with the same @hiero-ledger/sdk (2.79) as
+      // hedera-wallet-connect. Do not pre-freeze here — DAppSigner freezes internally.
+      const signed = await walletSignTransaction(accountId, tx, "x402 payment");
+      return Buffer.from(signed.toBytes()).toString("base64");
     },
   };
 }

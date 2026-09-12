@@ -13,6 +13,9 @@ export default defineConfig({
     server: { entry: "server" },
   },
   vite: {
+    resolve: {
+      dedupe: ["@hiero-ledger/sdk", "@hiero-ledger/proto"],
+    },
     ssr: {
       noExternal: [
         "@hashgraph/hedera-wallet-connect",
