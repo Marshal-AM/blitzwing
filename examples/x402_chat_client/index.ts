@@ -35,7 +35,7 @@ const baseURL = (
   "http://127.0.0.1:8000"
 ).replace(/\/v1\/?$/, "");
 const endpointPath = process.env.ENDPOINT_PATH || "/v1/chat/completions";
-const model = process.env.BLITZWING_MODEL || "bigscience/bloom-560m";
+const model = process.env.BLITZWING_MODEL || "HuggingFaceTB/SmolLM2-360M-Instruct";
 const maxTokens = Math.max(
   1,
   Number.parseInt(process.env.BLITZWING_MAX_TOKENS || "16", 10) || 16,

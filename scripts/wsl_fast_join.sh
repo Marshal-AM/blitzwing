@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Fast E2E: clean WSL contributor + join 18:22 + ready.
 set -euo pipefail
-MOTHER="${MOTHER_URL:-http://136.65.225.87:8000}"
+MOTHER="${MOTHER_URL:-http://136.113.86.69:8000}"
 ROOT=/mnt/c/Users/MSI/Desktop/blitzwing
 source "${HOME}/.blitzwing-venv/bin/activate"
 export PYTHONPATH="$ROOT"

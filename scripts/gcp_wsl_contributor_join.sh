@@ -12,7 +12,7 @@ cd "$ROOT"
 source "${HOME}/.blitzwing-venv/bin/activate"
 export PYTHONPATH="$ROOT"
 
-MOTHER_URL="${MOTHER_URL:-http://136.65.225.87:8000}"
+MOTHER_URL="${MOTHER_URL:-http://136.113.86.69:8000}"
 LAYERS="${BLITZWING_LAYERS:-4}"
 SHARD_PORT="${BLITZWING_SHARD_PORT:-8011}"
 PETALS_PORT="${BLITZWING_PETALS_PORT:-31338}"
@@ -42,7 +42,7 @@ curl -sf "$MOTHER_URL/v1/hosts" | python3 -m json.tool
 
 ASSIGNMENT="$(curl -sf -X POST "$MOTHER_URL/v1/hosts/join" \
   -H "Content-Type: application/json" \
-  -d "{\"model\":\"TinyLlama/TinyLlama-1.1B-Chat-v1.0\",\"layers\":${LAYERS},\"public_ip\":\"${NGROK_HOST}\",\"shard_manager_url\":\"http://${HOST_IP}:${SHARD_PORT}\",\"hedera_account_id\":\"${HEDERA_ACCOUNT_ID}\"}")"
+  -d "{\"model\":\"HuggingFaceTB/SmolLM2-360M-Instruct\",\"layers\":${LAYERS},\"public_ip\":\"${NGROK_HOST}\",\"shard_manager_url\":\"http://${HOST_IP}:${SHARD_PORT}\",\"hedera_account_id\":\"${HEDERA_ACCOUNT_ID}\"}")"
 echo "$ASSIGNMENT" | python3 -m json.tool
 HOST_ID="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["host_id"])' <<<"$ASSIGNMENT")"
 BLOCKS="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["block_indices"])' <<<"$ASSIGNMENT")"
@@ -52,7 +52,7 @@ fuser -k "${SHARD_PORT}/tcp" "${PETALS_PORT}/tcp" 2>/dev/null || true
 pkill -f "uvicorn shard_manager.app:app --host 0.0.0.0 --port ${SHARD_PORT}" 2>/dev/null || true
 sleep 2
 
-export MODEL_NAME=TinyLlama/TinyLlama-1.1B-Chat-v1.0
+export MODEL_NAME=HuggingFaceTB/SmolLM2-360M-Instruct
 export PUBLIC_IP="$NGROK_HOST"
 export BLOCK_INDICES="$BLOCKS"
 export INITIAL_PEERS="$PEERS"

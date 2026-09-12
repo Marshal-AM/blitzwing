@@ -3,7 +3,7 @@ import json
 import sys
 import urllib.request
 
-url = sys.argv[1] if len(sys.argv) > 1 else "http://136.65.225.87:8000/v1/chain/prefix"
+url = sys.argv[1] if len(sys.argv) > 1 else "http://136.113.86.69:8000/v1/chain/prefix"
 body = json.dumps({"input_ids": [1, 15043, 29892]}).encode()
 req = urllib.request.Request(url, data=body, headers={"Content-Type": "application/json"}, method="POST")
 try:

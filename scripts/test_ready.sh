@@ -7,7 +7,7 @@ body = json.dumps({
     "peer_multiaddr": "/ip4/172.22.94.108/tcp/31338/p2p/QmeMfSRqVZktQp93zbjmn5jyTfDW1p8jGXYUeWsA78NEVA",
 }).encode()
 req = urllib.request.Request(
-    "http://136.65.225.87:8000/v1/hosts/ready",
+    "http://136.113.86.69:8000/v1/hosts/ready",
     data=body,
     headers={"Content-Type": "application/json"},
     method="POST",
@@ -20,5 +20,5 @@ except urllib.error.HTTPError as e:
     print("STATUS", e.code)
     print(e.read().decode())
 PY
-curl -sS http://136.65.225.87:8000/v1/hosts
+curl -sS http://136.113.86.69:8000/v1/hosts
 echo

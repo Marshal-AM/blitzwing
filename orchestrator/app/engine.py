@@ -27,7 +27,7 @@ class GenerationResult:
 
 
 class PetalsEngine:
-    """Lazy-loaded TinyLlama client connected to a private Petals swarm."""
+    """Lazy-loaded SmolLM2 client connected to a private Petals swarm."""
 
     def __init__(self, settings: Optional[Settings] = None) -> None:
         self.settings = settings or get_settings()

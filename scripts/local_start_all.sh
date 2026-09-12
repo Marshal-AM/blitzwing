@@ -19,8 +19,8 @@ LAN_IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
 PUBLIC_IP="${PUBLIC_IP:-$LAN_IP}"
 if [[ -z "$PUBLIC_IP" ]]; then PUBLIC_IP=127.0.0.1; fi
 
-export MODEL_NAME="${MODEL_NAME:-TinyLlama/TinyLlama-1.1B-Chat-v1.0}"
-export TOTAL_LAYERS="${TOTAL_LAYERS:-22}"
+export MODEL_NAME="${MODEL_NAME:-HuggingFaceTB/SmolLM2-360M-Instruct}"
+export TOTAL_LAYERS="${TOTAL_LAYERS:-32}"
 export PUBLIC_IP
 export BLOCK_INDICES="0:${TOTAL_LAYERS}"
 export NEW_SWARM=1
@@ -58,7 +58,7 @@ nohup python -m uvicorn shard_manager.app:app --host 0.0.0.0 --port 8001 \
   >"$LOG/shard.log" 2>&1 &
 echo $! >"$LOG/shard.pid"
 
-echo "==> Waiting for Petals to come up (first run downloads TinyLlama weights)..."
+echo "==> Waiting for Petals to come up (first run downloads SmolLM2 weights)..."
 for i in $(seq 1 180); do
   if curl -sf http://127.0.0.1:8001/status | grep -q '"running": true\|"running":true'; then
     echo "    shard manager reports running after ${i} checks"

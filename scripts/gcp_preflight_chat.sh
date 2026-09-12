@@ -7,10 +7,11 @@ if ! curl -sf http://127.0.0.1:4040/api/tunnels >/dev/null; then
 fi
 curl -sf http://127.0.0.1:4040/api/tunnels | python3 -c 'import sys,json; print(json.load(sys.stdin)["tunnels"][0]["public_url"])'
 curl -sf http://127.0.0.1:8011/status || echo contrib_shard_down
-curl -sf http://136.65.225.87:8001/status
+MOTHER_URL="${MOTHER_URL:-http://136.113.86.69:8000}"
+curl -sf "${MOTHER_URL%/8000}:8001/status"
 echo
-curl -sf http://136.65.225.87:8000/v1/hosts
+curl -sf "${MOTHER_URL}/v1/hosts"
 echo
 # heartbeat
-curl -sf -X POST http://136.65.225.87:8000/v1/hosts/heartbeat -H 'Content-Type: application/json' -d '{"host_id":"host-95484cc4eade"}' || true
+curl -sf -X POST "${MOTHER_URL}/v1/hosts/heartbeat" -H 'Content-Type: application/json' -d '{"host_id":"host-95484cc4eade"}' || true
 echo

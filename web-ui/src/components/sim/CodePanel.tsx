@@ -22,7 +22,7 @@ const CODE: { text: string; kind: "kw" | "str" | "fn" | "num" | "cmt" | "plain" 
   [
     { text: '        "model"', kind: "plain" },
     { text: ": ", kind: "plain" },
-    { text: '"bigscience/bloom-560m"', kind: "str" },
+    { text: '"HuggingFaceTB/SmolLM2-360M-Instruct"', kind: "str" },
     { text: ",", kind: "plain" },
   ],
   [
@@ -75,6 +75,7 @@ const CLASS: Record<string, string> = {
 export function CodePanel({
   nodes,
   running,
+  walletConnected,
   onRun,
   onReset,
   phase,
@@ -83,6 +84,7 @@ export function CodePanel({
 }: {
   nodes: SwarmNode[];
   running: boolean;
+  walletConnected: boolean;
   onRun: () => void;
   onReset: () => void;
   phase: string;
@@ -112,7 +114,8 @@ export function CodePanel({
           </button>
           <button
             onClick={onRun}
-            disabled={running}
+            disabled={running || !walletConnected}
+            title={walletConnected ? undefined : "Connect HashPack wallet to run paid inference"}
             className="group relative flex items-center gap-2 overflow-hidden rounded-md bg-cyan px-3.5 py-1.5 font-mono text-[11px] font-semibold uppercase tracking-[0.16em] text-primary-foreground transition-transform duration-150 hover:-translate-y-px active:translate-y-0 disabled:opacity-60"
           >
             <span

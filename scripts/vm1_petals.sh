@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# Start Petals server on VM1 (bootstrap peer) — TinyLlama layers [0, 11).
+# Start Petals server on VM1 (bootstrap peer) — SmolLM2 layers [0, 16).
 set -euo pipefail
 
-MODEL_NAME="${MODEL_NAME:-TinyLlama/TinyLlama-1.1B-Chat-v1.0}"
+MODEL_NAME="${MODEL_NAME:-HuggingFaceTB/SmolLM2-360M-Instruct}"
 PORT="${PETALS_PORT:-31337}"
 PUBLIC_IP="${PUBLIC_IP:?Set PUBLIC_IP to this VM's external (or VPC) IPv4}"
 IDENTITY_PATH="${IDENTITY_PATH:-$HOME/petals-identity1}"
-BLOCK_INDICES="${BLOCK_INDICES:-0:11}"
+BLOCK_INDICES="${BLOCK_INDICES:-0:16}"
 
 echo "Starting Petals bootstrap server"
 echo "  model=${MODEL_NAME}"

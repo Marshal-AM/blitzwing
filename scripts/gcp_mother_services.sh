@@ -44,8 +44,8 @@ export JAVA_HOME="${JAVA_HOME:-/usr/lib/jvm/default-java}"
 
 # --- shard manager (if not already) ---
 export PYTHONPATH="$ROOT"
-export MODEL_NAME="${MODEL_NAME:-bigscience/bloom-560m}"
-export BLOCK_INDICES="0:${TOTAL_LAYERS:-24}"
+export MODEL_NAME="${MODEL_NAME:-HuggingFaceTB/SmolLM2-360M-Instruct}"
+export BLOCK_INDICES="0:${TOTAL_LAYERS:-32}"
 export NEW_SWARM="${NEW_SWARM:-0}"
 export IDENTITY_PATH="${HOME}/.blitzwing/petals-identity-mother"
 export PETALS_PORT=31337
@@ -113,11 +113,11 @@ nohup npx tsx index.ts > "${HOME}/blitzwing-logs/x402-gateway.log" 2>&1 &
 for i in $(seq 1 30); do curl -sf http://127.0.0.1:8000/health && break; sleep 2; done
 curl -s http://127.0.0.1:8000/health; echo
 
-DISCOVERY_IP="${DISCOVERY_IP:-35.238.86.1}"
+DISCOVERY_IP="${DISCOVERY_IP:-34.70.57.65}"
 DISCOVERY_ADMIN_TOKEN="${DISCOVERY_ADMIN_TOKEN:-blitzwing-prod-admin-2026-x402}"
-curl -sS -X PUT "http://${DISCOVERY_IP}:9000/v1/mothers/TinyLlama%2FTinyLlama-1.1B-Chat-v1.0" \
+curl -sS -X PUT "http://${DISCOVERY_IP}:9000/v1/mothers/HuggingFaceTB%2FSmolLM2-360M-Instruct" \
   -H "Authorization: Bearer ${DISCOVERY_ADMIN_TOKEN}" \
   -H "Content-Type: application/json" \
-  -d "{\"mother_url\":\"http://${PUBLIC_IP}:8000\",\"total_layers\":${TOTAL_LAYERS:-22}}"
+  -d "{\"mother_url\":\"http://${PUBLIC_IP}:8000\",\"total_layers\":${TOTAL_LAYERS:-32}}"
 echo
 echo "MOTHER_SERVICES_OK public=${PUBLIC_IP} facilitator=:8791 gateway=:8000 orch=:8002"

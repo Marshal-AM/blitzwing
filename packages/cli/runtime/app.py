@@ -75,7 +75,7 @@ class ContinueResponse(BaseModel):
 
 class ShardManager:
     def __init__(self) -> None:
-        self.model = os.getenv("MODEL_NAME", "bigscience/bloom-560m")
+        self.model = os.getenv("MODEL_NAME", "HuggingFaceTB/SmolLM2-360M-Instruct")
         self.public_ip = os.getenv("PUBLIC_IP")
         self.port = int(os.getenv("PETALS_PORT", "31337"))
         self.identity_path = os.getenv(

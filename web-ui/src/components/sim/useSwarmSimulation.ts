@@ -1,12 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { API_CONFIG } from "@/config";
-import {
-  fetchSwarmSnapshot,
-  sendChatCompletion,
-  type HostPublic,
-} from "@/lib/blitzwing-api";
+import { fetchSwarmSnapshot, type HostPublic } from "@/lib/blitzwing-api";
+import { paidChatCompletion, streamTokens } from "@/lib/x402-client";
 import { hostToNodeRuntime, hostsToSwarmNodes } from "@/lib/swarm-adapter";
-import { parsePaymentReceipt, tinybarsToHbar } from "@/lib/payment";
+import { hederaExplorerTopic, hederaExplorerTx, parsePaymentReceipt, tinybarsToHbar } from "@/lib/payment";
 import {
   type NodeRuntime,
   type OrchLog,
@@ -32,7 +29,7 @@ function emptyRuntime(node: SwarmNode): NodeRuntime {
 
 export function useSwarmSimulation() {
   const [nodes, setNodes] = useState<SwarmNode[]>([]);
-  const [totalLayers, setTotalLayers] = useState(24);
+  const [totalLayers, setTotalLayers] = useState(32);
   const [manifestComplete, setManifestComplete] = useState(false);
   const [motherUrl, setMotherUrl] = useState<string | null>(null);
   const [pollError, setPollError] = useState<string | null>(null);
@@ -42,7 +39,6 @@ export function useSwarmSimulation() {
   const [tokens, setTokens] = useState<string[]>([]);
   const [pulses, setPulses] = useState<Pulse[]>([]);
   const [activeWires, setActiveWires] = useState<string[]>([]);
-  const [elapsed, setElapsed] = useState(0);
   const [tokenIndex, setTokenIndex] = useState(0);
   const [totalTokens, setTotalTokens] = useState(0);
   const [prompt, setPrompt] = useState(API_CONFIG.defaultPrompt);
@@ -63,10 +59,16 @@ export function useSwarmSimulation() {
     timers.current = [];
   };
 
-  const orch = useCallback((text: string, tone: Tone = "cyan", scope = "orchestrator") => {
-    logRef.current += 1;
-    setOrchLogs((prev) => [...prev.slice(-40), { id: logRef.current, scope, text, tone }]);
-  }, []);
+  const orch = useCallback(
+    (text: string, tone: Tone = "cyan", scope = "orchestrator", href?: string | null) => {
+      logRef.current += 1;
+      setOrchLogs((prev) => [
+        ...prev.slice(-40),
+        { id: logRef.current, scope, text, tone, href },
+      ]);
+    },
+    [],
+  );
 
   const reset = useCallback(() => {
     runIdRef.current += 1;
@@ -76,7 +78,6 @@ export function useSwarmSimulation() {
     setTokens([]);
     setPulses([]);
     setActiveWires([]);
-    setElapsed(0);
     setTokenIndex(0);
     setTotalTokens(0);
     setPayment(null);
@@ -154,7 +155,11 @@ export function useSwarmSimulation() {
     prevNodesRef.current = nodes;
   }, [nodes, orch]);
 
-  const run = useCallback(async () => {
+  const run = useCallback(async (accountId: string | null) => {
+    if (!accountId) {
+      orch("Connect HashPack wallet before running paid inference", "amber", "orchestrator");
+      return;
+    }
     if (online.length === 0) {
       orch("No online hosts available", "amber", "orchestrator");
       return;
@@ -171,7 +176,6 @@ export function useSwarmSimulation() {
     setTokens([]);
     setPulses([]);
     setActiveWires([]);
-    setElapsed(0);
     setTokenIndex(0);
     setTotalTokens(0);
     setPayment(null);
@@ -205,12 +209,6 @@ export function useSwarmSimulation() {
         setTimeout(() => setActiveWires((prev) => prev.filter((w) => w !== wire)), duration + 60),
       );
     };
-
-    const started = performance.now();
-    const ticker = setInterval(() => {
-      if (runIdRef.current !== runId) return clearInterval(ticker);
-      setElapsed(performance.now() - started);
-    }, 60);
 
     const tail = online[online.length - 1]!;
     let tokenCount = 0;
@@ -336,87 +334,86 @@ export function useSwarmSimulation() {
         nodeLog(node, `session open · ${node.host}`);
       }
 
-      await sendChatCompletion(
-        prompt,
-        {
-          onPhase: (p) => {
-            if (p === "paying") {
-              setPhase("paying");
-              orch("x402 voucher requested", "amber", "gateway");
-            }
-            if (p === "routing") {
-              setPhase("routing");
-              orch(
-                `swarm_manifest = ${online
-                  .map((n) => `${n.label}[${n.blocks[0]}:${n.blocks[1]}]`)
-                  .join(" -> ")}`,
-                "lime",
-              );
-              orch(`route inference to TAIL ${tail.label}[${tail.blocks[0]}:${tail.blocks[1]}]`, "magenta");
-            }
-            if (p === "streaming") setPhase("streaming");
-          },
-          onToken: (token) => {
-            tokenCount += 1;
-            expectedTokens = Math.max(expectedTokens, tokenCount + 4);
-            setTotalTokens(expectedTokens);
-            setTokenIndex(tokenCount);
-            setTokens((prev) => [...prev, token]);
-            scheduleTokenAnimation(token, tokenCount);
-          },
-          onComplete: async (meta) => {
-            clearInterval(waitPulse);
-            await new Promise((r) => timers.current.push(setTimeout(r, online.length * 50 + 200)));
-            guard();
-            setTotalTokens(tokenCount);
-            for (const node of online) patch(node, { status: "done", load: 0 });
-            orch("stream complete · EOS", "cyan", tail.label);
-            if (meta?.payment) {
-              const receipt = parsePaymentReceipt(meta.payment);
-              if (receipt) {
-                setPayment(receipt);
-                if (receipt.x402_tx_id) {
-                  orch(`x402 escrow settled · ${receipt.x402_tx_id}`, "amber", "hedera");
-                }
-                if (receipt.payout_tx_id) {
-                  orch(`payout tx · ${receipt.payout_tx_id}`, "lime", "hedera");
-                }
-                if (receipt.hcs_topic_id) {
-                  orch(
-                    `HCS audit · ${receipt.hcs_topic_id}#${receipt.hcs_sequence ?? "?"}`,
-                    "cyan",
-                    "hedera",
-                  );
-                }
-                for (const h of receipt.hosts ?? []) {
-                  const amt = h.amount_tinybars
-                    ? ` +${tinybarsToHbar(h.amount_tinybars)} HBAR`
-                    : "";
-                  orch(
-                    `${h.ens_name || h.host_id} → ${h.hedera_account_id}${amt}`,
-                    "violet",
-                    "payout",
-                  );
-                }
-              } else {
-                orch(`payouts distributed · ${online.length} host(s)`, "amber", "gateway");
-              }
-            }
-            setPhase("complete");
-          },
-          onError: (message) => {
-            orch(message, "amber", "gateway");
-          },
-        },
-        { model: API_CONFIG.model, maxTokens: API_CONFIG.maxTokens },
+      orch("signing x402 payment via HashPack", "amber", "hedera");
+      const result = await paidChatCompletion(accountId, prompt, {
+        model: API_CONFIG.model,
+        maxTokens: API_CONFIG.maxTokens,
+      });
+      guard();
+      setPhase("routing");
+      orch(
+        `swarm_manifest = ${online
+          .map((n) => `${n.label}[${n.blocks[0]}:${n.blocks[1]}]`)
+          .join(" -> ")}`,
+        "lime",
       );
+      orch(`route inference to TAIL ${tail.label}[${tail.blocks[0]}:${tail.blocks[1]}]`, "magenta");
+      setPhase("streaming");
+
+      await streamTokens(result.content, (token) => {
+        guard();
+        tokenCount += 1;
+        expectedTokens = Math.max(expectedTokens, tokenCount + 4);
+        setTotalTokens(expectedTokens);
+        setTokenIndex(tokenCount);
+        setTokens((prev) => [...prev, token]);
+        scheduleTokenAnimation(token, tokenCount);
+      });
+
+      clearInterval(waitPulse);
+      await new Promise((r) => timers.current.push(setTimeout(r, online.length * 50 + 200)));
+      guard();
+      setTotalTokens(tokenCount);
+      for (const node of online) patch(node, { status: "done", load: 0 });
+      orch("stream complete · EOS", "cyan", tail.label);
+
+      if (result.payment) {
+        const receipt = parsePaymentReceipt(result.payment);
+        if (receipt) {
+          setPayment(receipt);
+          if (receipt.x402_tx_id) {
+            orch(
+              `x402 escrow settled · ${receipt.x402_tx_id}`,
+              "amber",
+              "hedera",
+              hederaExplorerTx(receipt.x402_tx_id),
+            );
+          }
+          if (receipt.payout_tx_id) {
+            orch(
+              `payout tx · ${receipt.payout_tx_id}`,
+              "lime",
+              "hedera",
+              hederaExplorerTx(receipt.payout_tx_id),
+            );
+          }
+          if (receipt.hcs_topic_id) {
+            orch(
+              `HCS audit · ${receipt.hcs_topic_id}#${receipt.hcs_sequence ?? "?"}`,
+              "cyan",
+              "hedera",
+              hederaExplorerTopic(receipt.hcs_topic_id),
+            );
+          }
+          for (const h of receipt.hosts ?? []) {
+            const amt = h.amount_tinybars ? ` +${tinybarsToHbar(h.amount_tinybars)} HBAR` : "";
+            orch(
+              `${h.ens_name || h.host_id} → ${h.hedera_account_id}${amt}`,
+              "violet",
+              "payout",
+            );
+          }
+        } else {
+          orch(`payouts distributed · ${online.length} host(s)`, "amber", "gateway");
+        }
+      }
+      setPhase("complete");
     } catch (err) {
       if (err !== CANCELLED) {
         orch(err instanceof Error ? err.message : String(err), "amber", "orchestrator");
         setPhase("idle");
       }
     } finally {
-      clearInterval(ticker);
       clearInterval(waitPulse);
     }
   }, [manifestComplete, nodes, online, orch, prompt]);
@@ -434,7 +431,6 @@ export function useSwarmSimulation() {
     tokens,
     pulses,
     activeWires,
-    elapsed,
     tokenIndex,
     totalTokens,
     prompt,

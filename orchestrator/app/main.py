@@ -440,10 +440,12 @@ async def hosts_ready(body: HostReadyRequest) -> dict:
                 host.ens_name = ens_name or host.ens_name
             except EnsClientError as exc:
                 logger.exception("ENS write failed after ready for %s", body.host_id)
-                raise HTTPException(
-                    status_code=500,
-                    detail={"message": str(exc), "ens_error": str(exc), "host_id": body.host_id},
-                ) from exc
+                if settings.ens_strict:
+                    raise HTTPException(
+                        status_code=500,
+                        detail={"message": str(exc), "ens_error": str(exc), "host_id": body.host_id},
+                    ) from exc
+                logger.warning("ENS_STRICT=0 — continuing handoff without ENS for %s", body.host_id)
 
         logger.info("Handoff complete: %s is online with blocks %s", body.host_id, host.block_indices)
 

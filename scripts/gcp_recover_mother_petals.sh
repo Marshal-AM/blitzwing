@@ -19,7 +19,7 @@ pkill -f 'petals.cli.run_server' || true
 pkill -f 'uvicorn orchestrator.app.main' || true
 sleep 3
 
-export MODEL_NAME=TinyLlama/TinyLlama-1.1B-Chat-v1.0
+export MODEL_NAME=HuggingFaceTB/SmolLM2-360M-Instruct
 export PUBLIC_IP
 export BLOCK_INDICES=0:22
 export NEW_SWARM=1

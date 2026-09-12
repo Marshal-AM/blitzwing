@@ -3,7 +3,7 @@
 set -euo pipefail
 
 ROOT="${HOME}/blitzwing"
-MOTHER_URL="${MOTHER_URL:-http://136.65.225.87:8000}"
+MOTHER_URL="${MOTHER_URL:-http://136.113.86.69:8000}"
 LAYERS="${BLITZWING_LAYERS:-4}"
 SHARD_PORT="${BLITZWING_SHARD_PORT:-8011}"
 PETALS_PORT="${BLITZWING_PETALS_PORT:-31337}"
@@ -34,22 +34,26 @@ ensure_python311() {
 }
 
 pip_install() {
-  export PATH="${HOME}/.local/bin:${PATH}"
-  uv pip install --python "${PY}" "$@"
+  "${PY}" -m pip install "$@"
 }
 
 echo "== GCP contributor (public IP) =="
 echo "mother=$MOTHER_URL public_ip=$PUBLIC_IP layers=$LAYERS petals_port=$PETALS_PORT"
 
 cd "$ROOT"
-git fetch origin
-git reset --hard origin/main
+if [[ -d "${ROOT}/.git" ]] && [[ "${CONTRIB_SKIP_GIT_RESET:-0}" != "1" ]]; then
+  git fetch origin
+  git reset --hard origin/main
+else
+  echo "skip git reset (synced tree or CONTRIB_SKIP_GIT_RESET=1)"
+fi
 
 deps_ready() {
   "$PY" -c "import petals, uvicorn, fastapi" 2>/dev/null
 }
 
 ensure_python311
+"${PY}" -m pip install -U pip setuptools wheel
 if ! deps_ready; then
   echo "== installing Petals deps (first run) — log: ${LOG_DIR}/pip_install.log =="
   sudo apt-get update -y
@@ -61,7 +65,7 @@ if ! deps_ready; then
     echo "== pip install build tools =="
     pip_install setuptools wheel grpcio-tools
     echo "== pip install petals =="
-    pip_install -e "${ROOT}/petals" --no-build-isolation
+    pip_install -e "${ROOT}/petals"
     echo "== pip install shard_manager + orchestrator reqs =="
     pip_install -r "${ROOT}/shard_manager/requirements.txt"
     pip_install -r "${ROOT}/orchestrator/requirements.txt"
@@ -84,13 +88,13 @@ curl -sf "$MOTHER_URL/v1/hosts" | python3 -m json.tool
 
 ASSIGNMENT="$(curl -sf -X POST "$MOTHER_URL/v1/hosts/join" \
   -H "Content-Type: application/json" \
-  -d "{\"model\":\"TinyLlama/TinyLlama-1.1B-Chat-v1.0\",\"layers\":${LAYERS},\"public_ip\":\"${PUBLIC_IP}\",\"shard_manager_url\":\"http://${HOST_IP}:${SHARD_PORT}\",\"hedera_account_id\":\"${HEDERA_ACCOUNT_ID}\"}")"
+  -d "{\"model\":\"HuggingFaceTB/SmolLM2-360M-Instruct\",\"layers\":${LAYERS},\"public_ip\":\"${PUBLIC_IP}\",\"shard_manager_url\":\"http://${HOST_IP}:${SHARD_PORT}\",\"hedera_account_id\":\"${HEDERA_ACCOUNT_ID}\"}")"
 echo "$ASSIGNMENT" | python3 -m json.tool
 HOST_ID="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["host_id"])' <<<"$ASSIGNMENT")"
 BLOCKS="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["block_indices"])' <<<"$ASSIGNMENT")"
 PEERS="$(python3 -c 'import json,sys; print(",".join(json.load(sys.stdin).get("initial_peers",[])))' <<<"$ASSIGNMENT")"
 
-export MODEL_NAME=TinyLlama/TinyLlama-1.1B-Chat-v1.0
+export MODEL_NAME=HuggingFaceTB/SmolLM2-360M-Instruct
 export PUBLIC_IP
 export BLOCK_INDICES="$BLOCKS"
 export INITIAL_PEERS="$PEERS"

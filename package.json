@@ -1,0 +1,37 @@
+{
+  "name": "blitzwing",
+  "version": "1.0.0",
+  "description": "Decentralized [Petals](https://github.com/bigscience-workshop/petals) inference spine with an OpenAI-compatible chat API.",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs",
+    "example": "examples"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Marshal-AM/blitzwing.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/Marshal-AM/blitzwing/issues"
+  },
+  "homepage": "https://github.com/Marshal-AM/blitzwing#readme",
+  "dependencies": {
+    "@ensdomains/ensjs": "^4.3.1",
+    "@hono/node-server": "^1.19.17",
+    "dotenv": "^16.6.1",
+    "hono": "^4.13.7",
+    "viem": "^2.56.3"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.2",
+    "tsx": "^4.23.13",
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.7"
+  }
+}

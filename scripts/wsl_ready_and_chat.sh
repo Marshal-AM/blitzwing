@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
-MOTHER_URL="${MOTHER_URL:-http://136.65.225.87:8000}"
+MOTHER_URL="${MOTHER_URL:-http://136.113.86.69:8000}"
 HOST_ID="${1:-host-ccc459bd6714}"
 PEER="${2:-/dns4/0.tcp.in.ngrok.io/tcp/20456/p2p/QmeMfSRqVZktQp93zbjmn5jyTfDW1p8jGXYUeWsA78NEVA}"
 ROOT="/mnt/c/Users/MSI/Desktop/blitzwing"

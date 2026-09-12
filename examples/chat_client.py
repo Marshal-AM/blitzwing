@@ -29,7 +29,7 @@ import urllib.request
 from typing import Any, Dict, Iterator, List
 
 
-DEFAULT_MODEL = "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
+DEFAULT_MODEL = "HuggingFaceTB/SmolLM2-360M-Instruct"
 DEFAULT_SYSTEM = (
     "You are a helpful assistant running on a private Petals swarm. "
     "Keep answers concise and clear."

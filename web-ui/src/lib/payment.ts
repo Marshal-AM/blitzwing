@@ -34,8 +34,34 @@ export function parsePaymentReceipt(raw: unknown): PaymentReceipt | null {
   };
 }
 
+const HEDERA_ENTITY_RE = /^0\.0\.\d+$/;
+
+export function isHederaEntityId(value: string | null | undefined): boolean {
+  return Boolean(value && HEDERA_ENTITY_RE.test(value.trim()));
+}
+
+function normalizeHederaTxId(txId: string): string {
+  const trimmed = txId.trim();
+  if (trimmed.includes("@")) return trimmed.replace("@", "-");
+  if (/^0\.0\.\d+-\d+\.\d+$/.test(trimmed)) return trimmed;
+  const atMatch = trimmed.match(/^(0\.0\.\d+)@(\d+\.\d+)$/);
+  if (atMatch) return `${atMatch[1]}-${atMatch[2]}`;
+  return trimmed;
+}
+
 export function hederaExplorerTx(txId: string | null | undefined): string | null {
-  if (!txId) return null;
-  const normalized = txId.replace("@", "-");
+  if (!txId?.trim()) return null;
+  const normalized = normalizeHederaTxId(txId);
+  if (!normalized.includes("-") && !normalized.includes("@")) return null;
   return `https://hashscan.io/testnet/transaction/${normalized}`;
+}
+
+export function hederaExplorerTopic(topicId: string | null | undefined): string | null {
+  if (!isHederaEntityId(topicId)) return null;
+  return `https://hashscan.io/testnet/topic/${topicId!.trim()}`;
+}
+
+export function hederaExplorerAccount(accountId: string | null | undefined): string | null {
+  if (!isHederaEntityId(accountId)) return null;
+  return `https://hashscan.io/testnet/account/${accountId!.trim()}`;
 }

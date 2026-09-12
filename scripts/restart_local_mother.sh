@@ -36,7 +36,7 @@ nohup python -m uvicorn discovery_service.app:app --host 0.0.0.0 --port 9000 \
 for i in $(seq 1 30); do curl -sf http://127.0.0.1:9000/v1/mothers >/dev/null && break; sleep 1; done
 
 echo "== shard manager mother 0:22 =="
-export MODEL_NAME=TinyLlama/TinyLlama-1.1B-Chat-v1.0
+export MODEL_NAME=HuggingFaceTB/SmolLM2-360M-Instruct
 unset PUBLIC_IP || true
 export BLOCK_INDICES=0:22
 export NEW_SWARM=1
@@ -67,7 +67,7 @@ export X402_ENABLED="${X402_ENABLED:-0}"
 export COST_PER_LAYER_TINYBARS="${COST_PER_LAYER_TINYBARS:-0}"
 export FACILITATOR_URL="${FACILITATOR_URL:-http://127.0.0.1:8791}"
 export HEDERA_NETWORK="${HEDERA_NETWORK:-hedera-testnet}"
-export TOTAL_LAYERS=22
+export TOTAL_LAYERS=32
 export INITIAL_PEERS="/ip4/127.0.0.1/tcp/31337/p2p/$PEER"
 export ANNOUNCE_PEERS="/ip4/127.0.0.1/tcp/31337/p2p/$PEER"
 export MOTHER_SHARD_MANAGER_URL=http://127.0.0.1:8001
@@ -111,7 +111,7 @@ if [[ "$ORCH_PORT" == "8002" ]]; then
   for i in $(seq 1 30); do curl -sf http://127.0.0.1:8000/health >/dev/null && break; sleep 1; done
 fi
 
-curl -sf -X PUT "http://127.0.0.1:9000/v1/mothers/TinyLlama%2FTinyLlama-1.1B-Chat-v1.0" \
+curl -sf -X PUT "http://127.0.0.1:9000/v1/mothers/HuggingFaceTB%2FSmolLM2-360M-Instruct" \
   -H "Authorization: Bearer $DISCOVERY_TOKEN" \
   -H "Content-Type: application/json" \
   -d "{\"mother_url\":\"$MOTHER_URL\"}" >/dev/null

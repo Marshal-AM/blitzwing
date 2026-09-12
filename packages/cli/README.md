@@ -1,6 +1,6 @@
 # blitzwing
 
-<!-- mod: default discovery http://136.113.30.202:9000 (0.2.6) -->
+<!-- mod: default discovery http://34.70.57.65:9000 (0.2.7) -->
 
 Join a Blitzwing mother swarm as a compute contributor. One command — no repo clone, no ngrok, no port forwarding.
 

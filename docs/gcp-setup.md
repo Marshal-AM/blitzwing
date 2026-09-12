@@ -3,11 +3,11 @@
 This guide covers the current architecture:
 
 1. **Discovery Service** â€” updatable registry of `model â†’ mother_url`
-2. **Mother VM** â€” loads all TinyLlama layers, orchestrator + shard manager, registers with Discovery
+2. **Mother VM** â€” loads all SmolLM2 layers, orchestrator + shard manager, registers with Discovery
 3. **Contributors** â€” `npm i -g blitzwing && blitzwing` (interactive wizard)
 4. **Consumers** â€” `examples/chat_client.py` against the motherâ€™s `/v1/chat/completions`
 
-Default model: `TinyLlama/TinyLlama-1.1B-Chat-v1.0` (22 layers), CPU-friendly.
+Default model: `HuggingFaceTB/SmolLM2-360M-Instruct` (32 layers), CPU-friendly.
 
 ---
 
@@ -40,13 +40,13 @@ Bake this URL into `blitzwing` at publish time (or set `BLITZWING_DISCOVERY_URL`
 ```bash
 export DISCOVERY_URL=http://DISCOVERY_IP:9000
 export DISCOVERY_ADMIN_TOKEN=...
-./scripts/discovery_admin.sh update TinyLlama/TinyLlama-1.1B-Chat-v1.0 http://NEW_MOTHER_IP:8000
+./scripts/discovery_admin.sh update HuggingFaceTB/SmolLM2-360M-Instruct http://NEW_MOTHER_IP:8000
 ```
 
 Or:
 
 ```bash
-curl -X PUT "$DISCOVERY_URL/v1/mothers/TinyLlama%2FTinyLlama-1.1B-Chat-v1.0" \
+curl -X PUT "$DISCOVERY_URL/v1/mothers/HuggingFaceTB%2FSmolLM2-360M-Instruct" \
   -H "Authorization: Bearer $DISCOVERY_ADMIN_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"mother_url":"http://NEW_IP:8000"}'
@@ -94,8 +94,8 @@ SSH to VM1:
 
 ```bash
 export PUBLIC_IP="${VM1_IP}"
-export MODEL_NAME=TinyLlama/TinyLlama-1.1B-Chat-v1.0
-export TOTAL_LAYERS=22
+export MODEL_NAME=HuggingFaceTB/SmolLM2-360M-Instruct
+export TOTAL_LAYERS=32
 export DISCOVERY_URL=http://DISCOVERY_IP:9000
 export DISCOVERY_ADMIN_TOKEN=...
 
@@ -103,7 +103,7 @@ chmod +x scripts/*.sh
 ./scripts/bootstrap_mother.sh
 ```
 
-This installs deps, starts shard-manager (Petals `0:22`), starts orchestrator `:8000`, and registers the mother with Discovery.
+This installs deps, starts shard-manager (Petals `0:32`), starts orchestrator `:8000`, and registers the mother with Discovery.
 
 Contributors then only need:
 
@@ -153,7 +153,7 @@ python examples/chat_client.py -q "Hello"
 
 ## Layer split reminder
 
-- Mother starts with **all** layers `[0, 22)`.
+- Mother starts with **all** layers `[0, 32)`.
 - On join, contributor chooses **N** layers; mother carves from the **high end** of the largest donor.
 - After contributor is online, donor shard-manager **reloads** narrower range.
 - `layers_hosted` is stored for future x402 payout weighting.
@@ -173,6 +173,29 @@ export NPM_TOKEN=...   # do not commit; rotate if exposed
 ```
 
 Then contributors: `npm i -g blitzwing && blitzwing`.
+
+---
+
+## Disk sizing (measured 2026-09-12)
+
+After stopping BLOOM caches, typical mother VM usage:
+
+| Path | Size (mother) |
+|------|----------------|
+| `/` (79 GB disk) | ~27 GB used (~36%) |
+| `~/.cache/petals` | ~3.1 GB (delete old model dirs after migration) |
+| `~/.cache/huggingface` | ~3.2 GB |
+| `~/blitzwing-logs` | <1 MB |
+
+**Recommendation:** keep **40 GB** boot disk minimum for SmolLM2-360M (~360M weights + Petals overhead). GCP boot disks cannot shrink in-place; to reduce provisioned size, recreate VMs with a smaller disk and restore from snapshot.
+
+**Cleanup after model migration:**
+
+```bash
+rm -rf ~/.cache/petals/models--bigscience--bloom-560m
+rm -rf ~/.cache/huggingface/hub/models--bigscience--bloom-560m
+find ~/blitzwing-logs -name '*.log' -mtime +7 -delete
+```
 
 ---
 

@@ -9,6 +9,7 @@ orchestrator/.env
 __pycache__/
 *.py[cod]
 .venv/
+.venv-inference/
 venv/
 *.egg-info/
 .pytest_cache/
@@ -31,3 +32,5 @@ petals-identity*
 # OS
 .DS_Store
 Thumbs.db
+
+/reference

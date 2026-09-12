@@ -1,4 +1,4 @@
-export const TOTAL_LAYERS = 24;
+export const TOTAL_LAYERS = 32;
 
 export type Tone = "cyan" | "magenta" | "amber" | "lime" | "violet";
 
@@ -54,6 +54,7 @@ export interface OrchLog {
   scope: string;
   text: string;
   tone: Tone;
+  href?: string | null;
 }
 
 export interface Pulse {

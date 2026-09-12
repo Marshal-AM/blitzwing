@@ -48,7 +48,7 @@ const shardUpstream = (
 ).replace(/\/$/, "");
 const port = Number(process.env.X402_GATEWAY_PORT || process.env.API_PORT || 8000);
 const network = "hedera:testnet" as const;
-const totalLayers = Number(process.env.TOTAL_LAYERS || 22);
+const totalLayers = Number(process.env.TOTAL_LAYERS || 32);
 const costPerLayer = Number(process.env.COST_PER_LAYER_TINYBARS || 0);
 const x402Enabled = !["0", "false", "False"].includes(
   process.env.X402_ENABLED || "0",

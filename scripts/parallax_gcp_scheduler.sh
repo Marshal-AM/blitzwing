@@ -4,6 +4,7 @@
 set -euo pipefail
 
 PARALLAX_DIR="${HOME}/parallax"
+# Separate Parallax track — not part of the SmolLM2 Petals swarm migration.
 MODEL="${PARALLAX_MODEL:-Qwen/Qwen3-0.6B}"  # 600M params — must stay under 1B
 NODES="${PARALLAX_NODES:-2}"
 LOG_DIR="${HOME}/parallax-logs"

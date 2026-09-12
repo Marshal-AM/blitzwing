@@ -9,7 +9,7 @@ cd "$ROOT"
 source "${HOME}/.blitzwing-venv/bin/activate"
 export PYTHONPATH="$ROOT"
 
-MOTHER_URL="${MOTHER_URL:-http://136.65.225.87:8000}"
+MOTHER_URL="${MOTHER_URL:-http://136.113.86.69:8000}"
 LAYERS="${BLITZWING_LAYERS:-4}"
 SHARD_PORT="${BLITZWING_SHARD_PORT:-8011}"
 PETALS_PORT="${BLITZWING_PETALS_PORT:-31338}"
@@ -116,7 +116,7 @@ for t in data.get("tunnels", []):
 fi
 
 echo "== join $LAYERS layers =="
-MODEL="${MODEL_NAME:-bigscience/bloom-560m}"
+MODEL="${MODEL_NAME:-HuggingFaceTB/SmolLM2-360M-Instruct}"
 ASSIGNMENT="$(api POST "${MOTHER_URL}/v1/hosts/join" "{\"model\":\"${MODEL}\",\"layers\":${LAYERS},\"public_ip\":\"${HOST_IP}\",\"shard_manager_url\":\"${SHARD_PUBLIC_URL}\",\"hedera_account_id\":\"${HEDERA_ACCOUNT_ID}\"}")"
 echo "$ASSIGNMENT" | python3 -m json.tool
 HOST_ID="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["host_id"])' <<<"$ASSIGNMENT")"
@@ -127,7 +127,7 @@ PEERS="$(python3 -c 'import json,sys; print(",".join(json.load(sys.stdin).get("i
 USE_AUTO_RELAY=1
 SAVED_ANNOUNCE=""
 
-export MODEL_NAME="${MODEL_NAME:-bigscience/bloom-560m}"
+export MODEL_NAME="${MODEL_NAME:-HuggingFaceTB/SmolLM2-360M-Instruct}"
 export PUBLIC_IP="$HOST_IP"
 export BLOCK_INDICES="$BLOCKS"
 # HTTP-only mode: local Petals server does NOT bootstrap to mother via libp2p.

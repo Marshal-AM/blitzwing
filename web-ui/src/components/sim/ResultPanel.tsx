@@ -14,7 +14,6 @@ export function ResultPanel({
   tokens,
   tokenIndex,
   totalTokens,
-  elapsed,
   phase,
   logs,
   tail,
@@ -24,15 +23,12 @@ export function ResultPanel({
   tokens: string[];
   tokenIndex: number;
   totalTokens: number;
-  elapsed: number;
   phase: Phase;
   logs: OrchLog[];
   tail?: SwarmNode;
   payment: PaymentReceipt | null;
 }) {
   const streaming = phase === "streaming";
-  const seconds = (elapsed / 1000).toFixed(2);
-  const tps = elapsed > 0 && tokens.length ? (tokens.length / (elapsed / 1000)).toFixed(1) : "0.0";
 
   return (
     <div className="flex flex-col gap-5">
@@ -78,17 +74,11 @@ export function ResultPanel({
           </div>
         </div>
 
-        <div className="grid grid-cols-3 gap-px bg-hairline/60 font-mono text-[10px]">
-          {[
-            ["tokens", `${tokenIndex}/${totalTokens}`],
-            ["wall clock", `${seconds}s`],
-            ["throughput", `${tps} tok/s`],
-          ].map(([k, v]) => (
-            <div key={k} className="bg-surface px-3 py-2.5">
-              <p className="uppercase tracking-[0.14em] text-muted-foreground">{k}</p>
-              <p className="mt-0.5 text-[13px] text-foreground">{v}</p>
-            </div>
-          ))}
+        <div className="grid grid-cols-1 gap-px bg-hairline/60 font-mono text-[10px]">
+          <div className="bg-surface px-3 py-2.5">
+            <p className="uppercase tracking-[0.14em] text-muted-foreground">tokens</p>
+            <p className="mt-0.5 text-[13px] text-foreground">{tokenIndex}/{totalTokens}</p>
+          </div>
         </div>
 
         <div className="h-1 w-full bg-surface-sunken">
@@ -115,7 +105,18 @@ export function ResultPanel({
           {logs.map((l) => (
             <p key={l.id} className="animate-rise-in break-words leading-snug">
               <span className={`${TONE_TEXT[l.tone]} uppercase tracking-[0.1em]`}>[{l.scope}]</span>{" "}
-              <span className="text-muted-foreground">{l.text}</span>
+              {l.href ? (
+                <a
+                  href={l.href}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-cyan underline decoration-cyan/40 underline-offset-2 hover:text-cyan/80"
+                >
+                  {l.text}
+                </a>
+              ) : (
+                <span className="text-muted-foreground">{l.text}</span>
+              )}
             </p>
           ))}
         </div>

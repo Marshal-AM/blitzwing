@@ -1,5 +1,5 @@
 import type { PaymentReceipt, Tone } from "./types";
-import { hederaExplorerTx, tinybarsToHbar } from "@/lib/payment";
+import { hederaExplorerTopic, hederaExplorerTx, tinybarsToHbar } from "@/lib/payment";
 
 const TONE_TEXT: Record<Tone, string> = {
   cyan: "text-cyan",
@@ -20,6 +20,7 @@ export function SettlementPanel({ payment }: { payment: PaymentReceipt | null })
 
   const x402Link = hederaExplorerTx(payment.x402_tx_id);
   const payoutLink = hederaExplorerTx(payment.payout_tx_id);
+  const hcsLink = hederaExplorerTopic(payment.hcs_topic_id);
 
   return (
     <div className="panel overflow-hidden rounded-xl">
@@ -33,7 +34,12 @@ export function SettlementPanel({ payment }: { payment: PaymentReceipt | null })
         {[
           ["x402 escrow tx", payment.x402_tx_id, x402Link, "amber"],
           ["payout tx", payment.payout_tx_id, payoutLink, "lime"],
-          ["hcs audit", payment.hcs_topic_id ? `${payment.hcs_topic_id}#${payment.hcs_sequence ?? "?"}` : null, null, "cyan"],
+          [
+            "hcs audit",
+            payment.hcs_topic_id ? `${payment.hcs_topic_id}#${payment.hcs_sequence ?? "?"}` : null,
+            hcsLink,
+            "cyan",
+          ],
           [
             "total paid",
             payment.total_tinybars
@@ -51,7 +57,7 @@ export function SettlementPanel({ payment }: { payment: PaymentReceipt | null })
                   href={link}
                   target="_blank"
                   rel="noreferrer"
-                  className="mt-0.5 block truncate text-foreground hover:text-cyan"
+                  className="mt-0.5 block truncate text-foreground underline decoration-cyan/40 underline-offset-2 hover:text-cyan"
                 >
                   {value}
                 </a>

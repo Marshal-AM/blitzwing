@@ -10,7 +10,7 @@ loadEnv({ path: path.resolve(__dirname, "../../../../.env") });
 const DISCOVERY_URL = (
   process.env.VITE_DISCOVERY_URL || "http://136.113.30.202:9000"
 ).replace(/\/$/, "");
-const MODEL = process.env.VITE_BLITZWING_MODEL || "bigscience/bloom-560m";
+const MODEL = process.env.VITE_BLITZWING_MODEL || "HuggingFaceTB/SmolLM2-360M-Instruct";
 
 async function fetchJson<T>(url: string): Promise<T> {
   const res = await fetch(url, { headers: { accept: "application/json" } });

@@ -31,7 +31,7 @@ def _truthy(raw: Optional[str], default: bool = False) -> bool:
 
 @dataclass(frozen=True)
 class Settings:
-    model_name: str = "bigscience/bloom-560m"
+    model_name: str = "HuggingFaceTB/SmolLM2-360M-Instruct"
     initial_peers: List[str] = field(default_factory=list)
     announce_peers: List[str] = field(default_factory=list)
     api_host: str = "0.0.0.0"
@@ -39,7 +39,7 @@ class Settings:
     default_max_tokens: int = 256
     hard_max_tokens: int = 512
     load_at_startup: bool = True
-    total_layers: int = 22
+    total_layers: int = 32
     mother_shard_manager_url: str = "http://127.0.0.1:8001"
     heartbeat_ttl_seconds: int = 60
     pending_ttl_seconds: int = 60

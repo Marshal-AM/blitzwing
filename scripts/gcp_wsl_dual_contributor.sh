@@ -7,8 +7,8 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 [[ -f "$ROOT/shard_manager/app.py" ]] || ROOT=/mnt/c/Users/MSI/Desktop/blitzwing
 cd "$ROOT"
 
-MOTHER_URL="${MOTHER_URL:-http://136.65.225.87:8000}"
-export MODEL_NAME="${MODEL_NAME:-bigscience/bloom-560m}"
+MOTHER_URL="${MOTHER_URL:-http://136.113.86.69:8000}"
+export MODEL_NAME="${MODEL_NAME:-HuggingFaceTB/SmolLM2-360M-Instruct}"
 export NEW_SWARM=1
 export BLITZWING_HTTP_ONLY=1
 export BLITZWING_LAYERS=8

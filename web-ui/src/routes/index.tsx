@@ -5,6 +5,8 @@ import { NodeCard } from "@/components/sim/NodeCard";
 import { ResultPanel } from "@/components/sim/ResultPanel";
 import { WireCanvas, type Wire } from "@/components/sim/WireCanvas";
 import { useSwarmSimulation } from "@/components/sim/useSwarmSimulation";
+import { ConnectWalletButton } from "@/components/wallet/ConnectWalletButton";
+import { useWallet } from "@/components/wallet/WalletProvider";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -30,6 +32,7 @@ export const Route = createFileRoute("/")({
 
 function SwarmConsole() {
   const sim = useSwarmSimulation();
+  const wallet = useWallet();
   const containerRef = useRef<HTMLDivElement | null>(null);
   const codePanelRef = useRef<HTMLDivElement | null>(null);
   const railRefs = useRef(new Map<number, HTMLDivElement | null>());
@@ -201,6 +204,8 @@ function SwarmConsole() {
                 {sim.pollError}
               </div>
             ) : null}
+
+            <ConnectWalletButton />
           </div>
         </header>
 
@@ -220,7 +225,8 @@ function SwarmConsole() {
             <CodePanel
               nodes={sim.nodes}
               running={running}
-              onRun={() => void sim.run()}
+              walletConnected={Boolean(wallet.accountId)}
+              onRun={() => void sim.run(wallet.accountId)}
               onReset={sim.reset}
               phase={sim.phase}
               prompt={sim.prompt}
@@ -283,7 +289,6 @@ function SwarmConsole() {
               tokens={sim.tokens}
               tokenIndex={sim.tokenIndex}
               totalTokens={sim.totalTokens || 1}
-              elapsed={sim.elapsed}
               phase={sim.phase}
               logs={sim.orchLogs}
               tail={tail}

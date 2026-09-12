@@ -22,7 +22,7 @@ Contributor CLI → Orchestrator registry (routing)
 | `com.blitzwing.hederaAccountId` | `0.0.6111100` |
 | `com.blitzwing.blockIndices` | `12:20` |
 | `com.blitzwing.layersHosted` | `8` |
-| `com.blitzwing.model` | `bigscience/bloom-560m` |
+| `com.blitzwing.model` | `HuggingFaceTB/SmolLM2-360M-Instruct` |
 | `com.blitzwing.role` | `contributor` |
 | `com.blitzwing.status` | `online` |
 

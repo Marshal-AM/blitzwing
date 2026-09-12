@@ -11,7 +11,7 @@ Decentralized [Petals](https://github.com/bigscience-workshop/petals) inference 
 | **Contributors** | `npm i -g blitzwing` — host a slice of layers |
 | **Consumers** | `examples/chat_client.py` against `/v1/chat/completions` |
 
-Default model: `TinyLlama/TinyLlama-1.1B-Chat-v1.0` (22 layers, CPU-friendly).
+Default model: `HuggingFaceTB/SmolLM2-360M-Instruct` (32 layers, CPU-friendly).
 
 ## Quick start (local WSL)
 
@@ -51,6 +51,18 @@ blitzwing
 | Paid (x402 + Hedera) | `examples/x402_chat_client` — see [docs/x402-hedera.md](docs/x402-hedera.md) |
 
 Paid chat requires `packages/x402-facilitator` on `:8791` and `packages/x402-gateway` on `:8000`.
+
+## Web UI (Swarm Console + HashPack)
+
+```bash
+cd web-ui
+cp .env.example .env
+# Set VITE_WALLETCONNECT_PROJECT_ID from https://cloud.reown.com
+npm install --legacy-peer-deps
+npm run dev
+```
+
+Connect HashPack, then **Run** to sign x402 payments client-side against the live gateway.
 
 ## Docs
 

@@ -14,7 +14,7 @@ if [[ -f "${REPO_ROOT}/orchestrator/.env" ]]; then
   set +a
 fi
 
-export MODEL_NAME="${MODEL_NAME:-TinyLlama/TinyLlama-1.1B-Chat-v1.0}"
+export MODEL_NAME="${MODEL_NAME:-HuggingFaceTB/SmolLM2-360M-Instruct}"
 export INITIAL_PEERS="${INITIAL_PEERS:?Set INITIAL_PEERS to the VM1 Petals bootstrap multiaddr}"
 export API_HOST="${API_HOST:-0.0.0.0}"
 export API_PORT="${API_PORT:-8000}"

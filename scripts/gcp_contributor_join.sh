@@ -2,7 +2,7 @@
 # Join a GCP contributor VM to the live mother (public IP — no ngrok).
 set -euo pipefail
 
-DISCOVERY_URL="${BLITZWING_DISCOVERY_URL:-http://35.238.86.1:9000}"
+DISCOVERY_URL="${BLITZWING_DISCOVERY_URL:-http://34.70.57.65:9000}"
 LAYERS="${BLITZWING_LAYERS:-4}"
 HEDERA_ACCOUNT_ID="${BLITZWING_HEDERA_ACCOUNT_ID:-}"
 PUBLIC_IP="${PUBLIC_IP:-$(curl -s --max-time 10 ifconfig.me)}"

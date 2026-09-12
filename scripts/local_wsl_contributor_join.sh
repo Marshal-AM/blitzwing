@@ -34,7 +34,7 @@ curl -sf "http://127.0.0.1:8001/status" | grep -qE '"running":\s*true' || {
 
 ASSIGNMENT=$(curl -sf -X POST "$MOTHER_URL/v1/hosts/join" \
   -H "Content-Type: application/json" \
-  -d "{\"model\":\"TinyLlama/TinyLlama-1.1B-Chat-v1.0\",\"layers\":$LAYERS,\"public_ip\":\"$HOST_IP\",\"shard_manager_url\":\"http://$HOST_IP:$SHARD_PORT\",\"hedera_account_id\":\"$HEDERA_ACCOUNT_ID\"}")
+  -d "{\"model\":\"HuggingFaceTB/SmolLM2-360M-Instruct\",\"layers\":$LAYERS,\"public_ip\":\"$HOST_IP\",\"shard_manager_url\":\"http://$HOST_IP:$SHARD_PORT\",\"hedera_account_id\":\"$HEDERA_ACCOUNT_ID\"}")
 
 HOST_ID=$(python3 -c "import json,sys; d=json.load(sys.stdin); print(d['host_id'])" <<<"$ASSIGNMENT")
 BLOCKS=$(python3 -c "import json,sys; d=json.load(sys.stdin); print(d['block_indices'])" <<<"$ASSIGNMENT")
@@ -45,7 +45,7 @@ fuser -k "${SHARD_PORT}/tcp" "${PETALS_PORT}/tcp" 2>/dev/null || true
 pkill -f "uvicorn shard_manager.app:app --host 0.0.0.0 --port ${SHARD_PORT}" 2>/dev/null || true
 sleep 1
 
-export MODEL_NAME=TinyLlama/TinyLlama-1.1B-Chat-v1.0
+export MODEL_NAME=HuggingFaceTB/SmolLM2-360M-Instruct
 export PUBLIC_IP="$HOST_IP"
 export BLOCK_INDICES="$BLOCKS"
 export INITIAL_PEERS="$PEERS"
@@ -91,7 +91,7 @@ echo "waiting for mother reload to 0:$((22-LAYERS))…"
 for i in $(seq 1 120); do
   MOTHER_BLOCKS=$(curl -sf "http://127.0.0.1:8001/status" | python3 -c "import json,sys; print(json.load(sys.stdin).get('block_indices',''))")
   if [ "$MOTHER_BLOCKS" = "0:$((22-LAYERS))" ]; then
-    grep -q "Loaded TinyLlama.*block $((22-LAYERS-1))" "$LOG_DIR/shard_manager.out" 2>/dev/null && break
+    grep -q "Loaded SmolLM2.*block $((32-LAYERS-1))" "$LOG_DIR/shard_manager.out" 2>/dev/null && break
   fi
   sleep 3
 done

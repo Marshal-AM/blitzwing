@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Full restart with BLOOM-560M model
+# Full mother restart with SmolLM2-360M (legacy filename kept for existing callers).
 set -euo pipefail
 
 ROOT="${HOME}/blitzwing"
@@ -20,15 +20,15 @@ set -a
 source "$ROOT/.env"
 set +a
 
-export MODEL_NAME="${MODEL_NAME:-bigscience/bloom-560m}"
-export TOTAL_LAYERS="${TOTAL_LAYERS:-24}"
+export MODEL_NAME="${MODEL_NAME:-HuggingFaceTB/SmolLM2-360M-Instruct}"
+export TOTAL_LAYERS="${TOTAL_LAYERS:-32}"
 export BLOCK_INDICES="0:${TOTAL_LAYERS}"
 
 echo "MODEL_NAME=$MODEL_NAME"
 echo "TOTAL_LAYERS=$TOTAL_LAYERS"
 echo "BLOCK_INDICES=$BLOCK_INDICES"
 
-echo "=== Starting shard manager with BLOOM-560M ==="
+echo "=== Starting shard manager with SmolLM2 ==="
 bash scripts/gcp_restart_mother_blocks.sh "$BLOCK_INDICES"
 
 echo "=== Starting orchestrator and gateway ==="
