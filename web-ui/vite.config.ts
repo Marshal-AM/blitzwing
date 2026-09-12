@@ -12,6 +12,16 @@ export default defineConfig({
     // nitro/vite builds from this
     server: { entry: "server" },
   },
+  // Lovable defaults to cloudflare-module; Vercel needs the vercel preset so static
+  // assets (/assets/*.js) and the SSR handler deploy as one consistent Build Output.
+  nitro: {
+    preset: "vercel",
+    output: {
+      dir: ".vercel/output",
+      serverDir: ".vercel/output/functions/__server.func",
+      publicDir: ".vercel/output/static",
+    },
+  },
   vite: {
     resolve: {
       dedupe: ["@hiero-ledger/sdk", "@hiero-ledger/proto"],
