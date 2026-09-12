@@ -32,30 +32,21 @@ function createDebugVerifyPayerSignature() {
       const tx = Transaction.fromBytes(Buffer.from(transaction, "base64"));
       console.log(`[VERIFY] tx type=${tx.constructor.name}`);
       
-      // Get signatures from the transaction
+      // Get signatures from the transaction - check ALL signed transactions
       const signedTxs = (tx as any)._signedTransactions;
-      const signedTx = signedTxs?.get(0);
       console.log(`[VERIFY] signedTxs count=${signedTxs?.length || 0}`);
       
+      // Check signatures on each node's transaction
+      for (let i = 0; i < (signedTxs?.length || 0); i++) {
+        const signedTx = signedTxs.get(i);
+        const sigPairs = signedTx?.sigMap?.sigPair || [];
+        console.log(`[VERIFY] node[${i}] sigs=${sigPairs.length}`);
+      }
+      
+      const signedTx = signedTxs?.get(0);
       if (signedTx) {
         const bodyBytes = signedTx.bodyBytes;
         console.log(`[VERIFY] bodyBytes length=${bodyBytes?.length || 0}`);
-        if (bodyBytes) {
-          const bodyHash = Buffer.from(bodyBytes).toString("hex").substring(0, 40);
-          console.log(`[VERIFY] bodyBytes hash prefix=${bodyHash}...`);
-        }
-        
-        const sigMap = signedTx.sigMap;
-        const sigPairs = sigMap?.sigPair || [];
-        console.log(`[VERIFY] signature count=${sigPairs.length}`);
-        for (const pair of sigPairs) {
-          const pubKeyHex = Buffer.from(pair.pubKeyPrefix || []).toString("hex");
-          const ed25519Sig = pair.ed25519 ? Buffer.from(pair.ed25519).toString("hex").substring(0, 40) : null;
-          const ecdsaSig = pair.ECDSASecp256k1 ? Buffer.from(pair.ECDSASecp256k1).toString("hex").substring(0, 40) : null;
-          console.log(`[VERIFY] sig pubKeyPrefix=${pubKeyHex.substring(0, 20)}...`);
-          console.log(`[VERIFY] sig ed25519=${ed25519Sig || "none"}`);
-          console.log(`[VERIFY] sig ecdsa=${ecdsaSig || "none"}`);
-        }
       }
       
       // Fetch payer's public key from mirror node
@@ -83,13 +74,35 @@ function createDebugVerifyPayerSignature() {
       
       console.log(`[VERIFY] parsed key: ${key.toStringRaw().substring(0, 20)}...`);
       
-      // Verify
+      // Try SDK's verifyTransaction first
       const verified = key.verifyTransaction(tx);
       console.log(`[VERIFY] verifyTransaction result=${verified}`);
       
       if (verified) {
         return { ok: true };
       }
+      
+      // Fallback: manually verify the first signed transaction's signature
+      // HashPack may only sign one node's transaction body
+      const signedTx = (tx as any)._signedTransactions?.get(0);
+      if (signedTx?.bodyBytes && signedTx?.sigMap?.sigPair?.length > 0) {
+        const bodyBytes = signedTx.bodyBytes;
+        for (const pair of signedTx.sigMap.sigPair) {
+          const sigBytes = pair.ed25519 || pair.ECDSASecp256k1;
+          if (sigBytes) {
+            try {
+              const manualVerified = key.verify(bodyBytes, sigBytes);
+              console.log(`[VERIFY] manual verify result=${manualVerified}`);
+              if (manualVerified) {
+                return { ok: true };
+              }
+            } catch (e) {
+              console.log(`[VERIFY] manual verify error: ${e}`);
+            }
+          }
+        }
+      }
+      
       return { ok: false, reason: "signature_invalid", message: `payer ${payer} did not sign the transaction` };
     } catch (err) {
       console.log(`[VERIFY] error: ${err}`);
