@@ -10,8 +10,6 @@ import {
   AccountId,
   Client,
   PrivateKey,
-  Transaction,
-  PublicKey,
   createHederaPreflightTransfer,
   createHederaSignAndSubmitTransaction,
   type FacilitatorHederaSigner,
@@ -19,6 +17,7 @@ import {
   HEDERA_TESTNET_CAIP2,
   HEDERA_TESTNET_MIRROR_NODE_URL,
 } from "@x402/hedera";
+import { Transaction, PublicKey } from "@hiero-ledger/sdk";
 
 export const HBAR_ASSET = HBAR_ASSET_ID;
 export const HEDERA_TESTNET = HEDERA_TESTNET_CAIP2;
