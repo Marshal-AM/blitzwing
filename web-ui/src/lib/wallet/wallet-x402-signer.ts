@@ -9,6 +9,16 @@ import {
 } from "@hiero-ledger/sdk";
 import { walletSignTransaction } from "./wallet-tx";
 
+/** Browser-safe base64 — Buffer is Node-only and throws in HashPack's webview. */
+function bytesToBase64(bytes: Uint8Array): string {
+  let binary = "";
+  const chunkSize = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
+  }
+  return btoa(binary);
+}
+
 function isHbarAsset(asset: string): boolean {
   return asset === "0.0.0";
 }
@@ -45,7 +55,7 @@ export function createWalletHederaSigner(accountId: string): ClientHederaSigner 
       // HashPack must freeze + sign with the same @hiero-ledger/sdk (2.79) as
       // hedera-wallet-connect. Do not pre-freeze here — DAppSigner freezes internally.
       const signed = await walletSignTransaction(accountId, tx, "x402 payment");
-      return Buffer.from(signed.toBytes()).toString("base64");
+      return bytesToBase64(signed.toBytes());
     },
   };
 }
