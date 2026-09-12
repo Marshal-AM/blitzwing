@@ -12,4 +12,18 @@ export default defineConfig({
     // nitro/vite builds from this
     server: { entry: "server" },
   },
+  vite: {
+    ssr: {
+      noExternal: [
+        "@hashgraph/hedera-wallet-connect",
+        "@hiero-ledger/sdk",
+        "@reown/appkit",
+        "@walletconnect/modal",
+        "@walletconnect/universal-provider",
+      ],
+    },
+    optimizeDeps: {
+      include: ["@hashgraph/hedera-wallet-connect"],
+    },
+  },
 });
