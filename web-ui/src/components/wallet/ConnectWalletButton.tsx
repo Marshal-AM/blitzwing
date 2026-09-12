@@ -1,5 +1,5 @@
 import { hederaExplorerAccount } from "@/lib/payment";
-import { useWallet } from "./WalletProvider";
+import { useWallet } from "./wallet-context";
 
 export function ConnectWalletButton() {
   const { accountId, connecting, connect, disconnect } = useWallet();

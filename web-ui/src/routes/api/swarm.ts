@@ -8,7 +8,7 @@ loadEnv({ path: path.resolve(__dirname, "../../../.env") });
 loadEnv({ path: path.resolve(__dirname, "../../../../.env") });
 
 const DISCOVERY_URL = (
-  process.env.VITE_DISCOVERY_URL || "http://136.113.30.202:9000"
+  process.env.VITE_DISCOVERY_URL || "http://34.70.57.65:9000"
 ).replace(/\/$/, "");
 const MODEL = process.env.VITE_BLITZWING_MODEL || "HuggingFaceTB/SmolLM2-360M-Instruct";
 

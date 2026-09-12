@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as ApiChatRouteImport } from './routes/api/chat'
 import { Route as ApiSwarmRouteImport } from './routes/api/swarm'
+import { Route as ApiX402ChatRouteImport } from './routes/api/x402/chat'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -28,35 +29,44 @@ const ApiSwarmRoute = ApiSwarmRouteImport.update({
   path: '/api/swarm',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiX402ChatRoute = ApiX402ChatRouteImport.update({
+  id: '/api/x402/chat',
+  path: '/api/x402/chat',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/api/chat': typeof ApiChatRoute
   '/api/swarm': typeof ApiSwarmRoute
+  '/api/x402/chat': typeof ApiX402ChatRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/api/chat': typeof ApiChatRoute
   '/api/swarm': typeof ApiSwarmRoute
+  '/api/x402/chat': typeof ApiX402ChatRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/api/chat': typeof ApiChatRoute
   '/api/swarm': typeof ApiSwarmRoute
+  '/api/x402/chat': typeof ApiX402ChatRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/api/chat' | '/api/swarm'
+  fullPaths: '/' | '/api/chat' | '/api/swarm' | '/api/x402/chat'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/api/chat' | '/api/swarm'
-  id: '__root__' | '/' | '/api/chat' | '/api/swarm'
+  to: '/' | '/api/chat' | '/api/swarm' | '/api/x402/chat'
+  id: '__root__' | '/' | '/api/chat' | '/api/swarm' | '/api/x402/chat'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   ApiChatRoute: typeof ApiChatRoute
   ApiSwarmRoute: typeof ApiSwarmRoute
+  ApiX402ChatRoute: typeof ApiX402ChatRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -82,6 +92,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiSwarmRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/x402/chat': {
+      id: '/api/x402/chat'
+      path: '/api/x402/chat'
+      fullPath: '/api/x402/chat'
+      preLoaderRoute: typeof ApiX402ChatRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -89,6 +106,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   ApiChatRoute: ApiChatRoute,
   ApiSwarmRoute: ApiSwarmRoute,
+  ApiX402ChatRoute: ApiX402ChatRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

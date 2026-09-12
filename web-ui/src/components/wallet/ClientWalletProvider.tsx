@@ -1,7 +1,9 @@
 import { useEffect, useState, type ReactNode } from "react";
+import { stubWalletContext, WalletContext } from "./wallet-context";
 
 /**
  * Defers wallet bundle (Reown / HashPack) to the browser so SSR stays fast.
+ * Provides a stub context until the real WalletProvider module loads.
  */
 export function ClientWalletProvider({ children }: { children: ReactNode }) {
   const [WalletProvider, setWalletProvider] = useState<
@@ -15,7 +17,9 @@ export function ClientWalletProvider({ children }: { children: ReactNode }) {
   }, []);
 
   if (!WalletProvider) {
-    return <>{children}</>;
+    return (
+      <WalletContext.Provider value={stubWalletContext}>{children}</WalletContext.Provider>
+    );
   }
 
   return <WalletProvider>{children}</WalletProvider>;

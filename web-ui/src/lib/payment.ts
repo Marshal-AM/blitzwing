@@ -40,19 +40,19 @@ export function isHederaEntityId(value: string | null | undefined): boolean {
   return Boolean(value && HEDERA_ENTITY_RE.test(value.trim()));
 }
 
+/** Canonical Hedera tx id: `0.0.123@seconds.nanoseconds` (optional `/nonce` for child txs). */
 function normalizeHederaTxId(txId: string): string {
   const trimmed = txId.trim();
-  if (trimmed.includes("@")) return trimmed.replace("@", "-");
-  if (/^0\.0\.\d+-\d+\.\d+$/.test(trimmed)) return trimmed;
-  const atMatch = trimmed.match(/^(0\.0\.\d+)@(\d+\.\d+)$/);
-  if (atMatch) return `${atMatch[1]}-${atMatch[2]}`;
+  if (/^0\.0\.\d+@\d+\.\d+/.test(trimmed)) return trimmed;
+  const dashMatch = trimmed.match(/^(0\.0\.\d+)-(\d+\.\d+(?:\/\d+)?)$/);
+  if (dashMatch) return `${dashMatch[1]}@${dashMatch[2]}`;
   return trimmed;
 }
 
 export function hederaExplorerTx(txId: string | null | undefined): string | null {
   if (!txId?.trim()) return null;
   const normalized = normalizeHederaTxId(txId);
-  if (!normalized.includes("-") && !normalized.includes("@")) return null;
+  if (!/^0\.0\.\d+@\d+\.\d+/.test(normalized)) return null;
   return `https://hashscan.io/testnet/transaction/${normalized}`;
 }
 

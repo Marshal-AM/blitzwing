@@ -6,7 +6,7 @@ import { ResultPanel } from "@/components/sim/ResultPanel";
 import { WireCanvas, type Wire } from "@/components/sim/WireCanvas";
 import { useSwarmSimulation } from "@/components/sim/useSwarmSimulation";
 import { ConnectWalletButton } from "@/components/wallet/ConnectWalletButton";
-import { useWallet } from "@/components/wallet/WalletProvider";
+import { useWallet } from "@/components/wallet/wallet-context";
 
 export const Route = createFileRoute("/")({
   head: () => ({

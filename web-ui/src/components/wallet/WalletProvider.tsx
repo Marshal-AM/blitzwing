@@ -1,27 +1,5 @@
-import {
-  createContext,
-  useCallback,
-  useContext,
-  useEffect,
-  useMemo,
-  useState,
-  type ReactNode,
-} from "react";
-import {
-  connectWallet,
-  disconnectWallet,
-  restoreWalletSession,
-} from "@/lib/wallet/hedera-wallet";
-
-interface WalletContextValue {
-  accountId: string | null;
-  connecting: boolean;
-  ready: boolean;
-  connect: () => Promise<void>;
-  disconnect: () => Promise<void>;
-}
-
-const WalletContext = createContext<WalletContextValue | null>(null);
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { WalletContext, type WalletContextValue } from "./wallet-context";
 
 export function WalletProvider({ children }: { children: ReactNode }) {
   const [accountId, setAccountId] = useState<string | null>(null);
@@ -32,6 +10,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     let cancelled = false;
     (async () => {
       try {
+        const { restoreWalletSession } = await import("@/lib/wallet/hedera-wallet");
         const restored = await restoreWalletSession();
         if (!cancelled && restored) setAccountId(restored);
       } catch (e) {
@@ -48,6 +27,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   const connect = useCallback(async () => {
     setConnecting(true);
     try {
+      const { connectWallet } = await import("@/lib/wallet/hedera-wallet");
       const id = await connectWallet();
       setAccountId(id);
     } finally {
@@ -56,20 +36,15 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const disconnect = useCallback(async () => {
+    const { disconnectWallet } = await import("@/lib/wallet/hedera-wallet");
     await disconnectWallet();
     setAccountId(null);
   }, []);
 
-  const value = useMemo(
+  const value = useMemo<WalletContextValue>(
     () => ({ accountId, connecting, ready, connect, disconnect }),
     [accountId, connecting, ready, connect, disconnect],
   );
 
   return <WalletContext.Provider value={value}>{children}</WalletContext.Provider>;
-}
-
-export function useWallet(): WalletContextValue {
-  const ctx = useContext(WalletContext);
-  if (!ctx) throw new Error("useWallet must be used within WalletProvider");
-  return ctx;
 }

@@ -5,9 +5,6 @@ set -euo pipefail
 
 ROOT="${HOME}/blitzwing"
 cd "$ROOT"
-git fetch origin
-git reset --hard origin/main
-
 # shellcheck disable=SC1091
 set -a
 source "$ROOT/.env"
@@ -28,6 +25,25 @@ nohup npx tsx index.ts > "${HOME}/blitzwing-logs/facilitator.log" 2>&1 &
 for i in $(seq 1 60); do curl -sf http://127.0.0.1:8791/health && break; sleep 2; done
 curl -sf http://127.0.0.1:8791/health || { echo FACILITATOR_FAILED; tail -n 80 "${HOME}/blitzwing-logs/facilitator.log"; exit 1; }
 echo
+
+# --- ens-service :8792 (mother only; provisions Sepolia subnames for all hosts) ---
+if [[ "${ENS_ENABLED:-0}" == "1" ]]; then
+  ENS_SERVICE_URL="${ENS_SERVICE_URL:-http://127.0.0.1:8792}"
+  if curl -sf "${ENS_SERVICE_URL}/health" >/dev/null 2>&1; then
+    echo "ENS service already up"
+  else
+    echo "==> starting ENS service"
+    cd "$ROOT/packages/ens-service"
+    npm install --silent 2>/dev/null || npm install
+    pkill -f 'packages/ens-service' 2>/dev/null || true
+    pkill -f 'ens-service/src/server' 2>/dev/null || true
+    sleep 1
+    nohup npx tsx src/server.ts > "${HOME}/blitzwing-logs/ens-service.log" 2>&1 &
+    for i in $(seq 1 30); do curl -sf "${ENS_SERVICE_URL}/health" >/dev/null && break; sleep 2; done
+    curl -sf "${ENS_SERVICE_URL}/health" || { echo ENS_FAILED; tail -n 40 "${HOME}/blitzwing-logs/ens-service.log"; exit 1; }
+  fi
+  echo
+fi
 
 # JDK required by hedera-sdk-py (payouts)
 if ! command -v javac >/dev/null 2>&1; then
@@ -84,8 +100,8 @@ echo "BOOTSTRAP=${BOOTSTRAP}"
 grep -q '^INITIAL_PEERS=' "$ROOT/.env" && sed -i "s|^INITIAL_PEERS=.*|INITIAL_PEERS=${BOOTSTRAP}|" "$ROOT/.env" || echo "INITIAL_PEERS=${BOOTSTRAP}" >> "$ROOT/.env"
 
 # --- orchestrator :8002 ---
-pkill -f 'uvicorn orchestrator.app.main' || true
-sleep 1
+pkill -9 -f 'uvicorn orchestrator.app.main' 2>/dev/null || true
+sleep 2
 set -a; source "$ROOT/.env"; set +a
 export PYTHONPATH="$ROOT"
 export INITIAL_PEERS="${BOOTSTRAP}"
@@ -115,7 +131,11 @@ curl -s http://127.0.0.1:8000/health; echo
 
 DISCOVERY_IP="${DISCOVERY_IP:-34.70.57.65}"
 DISCOVERY_ADMIN_TOKEN="${DISCOVERY_ADMIN_TOKEN:-blitzwing-prod-admin-2026-x402}"
-curl -sS -X PUT "http://${DISCOVERY_IP}:9000/v1/mothers/HuggingFaceTB%2FSmolLM2-360M-Instruct" \
+curl -sS -X POST "http://${DISCOVERY_IP}:9000/v1/mothers/register" \
+  -H "Authorization: Bearer ${DISCOVERY_ADMIN_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d "{\"model\":\"HuggingFaceTB/SmolLM2-360M-Instruct\",\"mother_url\":\"http://${PUBLIC_IP}:8000\",\"total_layers\":${TOTAL_LAYERS:-32}}" \
+  || curl -sS -X PUT "http://${DISCOVERY_IP}:9000/v1/mothers/HuggingFaceTB%2FSmolLM2-360M-Instruct" \
   -H "Authorization: Bearer ${DISCOVERY_ADMIN_TOKEN}" \
   -H "Content-Type: application/json" \
   -d "{\"mother_url\":\"http://${PUBLIC_IP}:8000\",\"total_layers\":${TOTAL_LAYERS:-32}}"

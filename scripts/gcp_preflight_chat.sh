@@ -7,7 +7,7 @@ if ! curl -sf http://127.0.0.1:4040/api/tunnels >/dev/null; then
 fi
 curl -sf http://127.0.0.1:4040/api/tunnels | python3 -c 'import sys,json; print(json.load(sys.stdin)["tunnels"][0]["public_url"])'
 curl -sf http://127.0.0.1:8011/status || echo contrib_shard_down
-MOTHER_URL="${MOTHER_URL:-http://136.113.86.69:8000}"
+MOTHER_URL="${MOTHER_URL:-http://34.9.229.188:8000}"
 curl -sf "${MOTHER_URL%/8000}:8001/status"
 echo
 curl -sf "${MOTHER_URL}/v1/hosts"
