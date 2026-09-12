@@ -43,9 +43,9 @@ function createDebugVerifyPayerSignature() {
         console.log(`[VERIFY] node[${i}] sigs=${sigPairs.length}`);
       }
       
-      const signedTx = signedTxs?.get(0);
-      if (signedTx) {
-        const bodyBytes = signedTx.bodyBytes;
+      const firstSignedTx = signedTxs?.get(0);
+      if (firstSignedTx) {
+        const bodyBytes = firstSignedTx.bodyBytes;
         console.log(`[VERIFY] bodyBytes length=${bodyBytes?.length || 0}`);
       }
       
