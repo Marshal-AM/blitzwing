@@ -77,13 +77,21 @@ laptop can reach the internet, it can earn.
 
 ## Important Links
 
+### Project links
+
+| What | Link |
+|------|------|
+| **Live app** (Swarm Console) | https://blitzwing-lemon.vercel.app/ |
+| **npm package** | https://www.npmjs.com/package/blitzwing |
+| **Project showcase** (ETHGlobal) | https://ethglobal.com/showcase/blitzwing-zbe18 |
+
 ### Deployed contracts & accounts (Hedera Testnet)
 
 | What | Identifier | Explorer |
 |------|-----------|----------|
 | **Blitzwing Escrow** (payout splitter) | `0.0.10424668` | [HashScan →](https://hashscan.io/testnet/contract/0.0.10424668) |
 | Escrow — EVM address | `0x00000000000000000000000000000000009f115c` | [HashScan →](https://hashscan.io/testnet/address/0x00000000000000000000000000000000009f115c) |
-| **Treasury / Mother account** (fee payer + settlement) | `0.0.9211480` | [HashScan →](https://hashscan.io/testnet/account/0.0.9211480) |
+| **Mother account** (fee payer + escrow operator) | `0.0.9211480` | [HashScan →](https://hashscan.io/testnet/account/0.0.9211480) |
 | Example consumer (payer) account | `0.0.6111100` | [HashScan →](https://hashscan.io/testnet/account/0.0.6111100) |
 | **HCS audit topic** (memo `blitzwing-payouts`) | `0.0.10503363` | [HashScan →](https://hashscan.io/testnet/topic/0.0.10503363) |
 
@@ -123,23 +131,24 @@ mother 20 + contributor `host-7186124901ec` 4 + contributor `host-d3bcc8dc8762` 
 | Event | Transaction / ID | Explorer |
 |-------|------------------|----------|
 | x402 payment settled into escrow | `0.0.9211480@1789229445.699641675` | [HashScan →](https://hashscan.io/testnet/transaction/0.0.9211480@1789229445.699641675) |
-| Escrow `release()` / treasury payout | `0.0.9211480@1789229507.349000902` | [HashScan →](https://hashscan.io/testnet/transaction/0.0.9211480@1789229507.349000902) |
+| Escrow `release()` payout to contributors | `0.0.9211480@1789229507.349000902` | [HashScan →](https://hashscan.io/testnet/transaction/0.0.9211480@1789229507.349000902) |
 | HCS audit message (per request) | topic `0.0.10503363` @ `1789229518.857315744` | [HashScan →](https://hashscan.io/testnet/topic/0.0.10503363/messages?p=1&k=1789229518.857315744) |
 | ENS subname mint (`host-71861249.blitzwing.eth`) | `0x77f13e9f506cfdfe6fffc474dc7b30c5df538abc1365ce20bc5044275fbb0b95` | [Etherscan →](https://sepolia.etherscan.io/tx/0x77f13e9f506cfdfe6fffc474dc7b30c5df538abc1365ce20bc5044275fbb0b95) |
 | ENS resolver record update (`mother.blitzwing.eth` rebalance) | `0xf59e629a9d439c10350d790a6d633e45bd0669b822b4e5552af52ff2f60eda80` | [Etherscan →](https://sepolia.etherscan.io/tx/0xf59e629a9d439c10350d790a6d633e45bd0669b822b4e5552af52ff2f60eda80) |
 
-### Repository & docs
+### Repository & code map
 
-| Resource | Link |
-|----------|------|
+| Resource | Where in the code |
+|----------|-------------------|
 | Source repository | https://github.com/Marshal-AM/blitzwing |
-| CLI package (npm) | `npm i -g blitzwing` · [`packages/cli/README.md`](packages/cli/README.md) |
-| Operator / network setup | [`docs/gcp-setup.md`](docs/gcp-setup.md) |
-| x402 + Hedera core loop | [`docs/x402-hedera.md`](docs/x402-hedera.md) |
-| ENS identity backbone | [`docs/ens.md`](docs/ens.md) · [`docs/ens-setup.md`](docs/ens-setup.md) |
-| Layer rebalance mechanics | [`docs/rebalance.md`](docs/rebalance.md) |
-| Integration map (every primitive) | [`docs/integrations.md`](docs/integrations.md) |
-| User stories (provider & consumer) | [`docs/userStory.md`](docs/userStory.md) |
+| CLI package (npm) | `npm i -g blitzwing` · [`packages/cli/`](packages/cli) · [`packages/cli/README.md`](packages/cli/README.md) |
+| Orchestrator / mother (routing, payouts, ENS sync) | [`orchestrator/app/`](orchestrator/app) |
+| x402 + Hedera core loop | [`packages/x402-gateway/index.ts`](packages/x402-gateway/index.ts) · [`packages/x402-facilitator/`](packages/x402-facilitator) |
+| Hedera payouts, escrow & HCS | [`orchestrator/app/hedera_payouts.py`](orchestrator/app/hedera_payouts.py) · [`orchestrator/app/hedera_escrow.py`](orchestrator/app/hedera_escrow.py) |
+| Escrow contract (Hedera EVM) | [`contracts/contracts/BlitzwingEscrow.sol`](contracts/contracts/BlitzwingEscrow.sol) |
+| ENS identity backbone | [`packages/ens-service/src/`](packages/ens-service/src) · [`orchestrator/app/ens_client.py`](orchestrator/app/ens_client.py) |
+| Layer rebalance mechanics | [`orchestrator/app/registry.py`](orchestrator/app/registry.py) · [`shard_manager/`](shard_manager) |
+| Consumer clients (free, paid, ENS verifier) | [`examples/`](examples) |
 
 ---
 
@@ -148,11 +157,12 @@ mother 20 + contributor `host-7186124901ec` 4 + contributor `host-d3bcc8dc8762` 
 - [What is Blitzwing, really?](#what-is-blitzwing-really)
   - [Why a GPU-less laptop can still earn](#why-a-gpu-less-laptop-can-still-earn)
 - [Important Links](#important-links)
+  - [Project links](#project-links)
   - [Deployed contracts & accounts (Hedera Testnet)](#deployed-contracts--accounts-hedera-testnet)
   - [ENS identity (Ethereum Sepolia — ENSv2 Beta, chain `11155111`)](#ens-identity-ethereum-sepolia--ensv2-beta-chain-11155111)
   - [Live network endpoints](#live-network-endpoints)
   - [Important transactions (demo run — 2026-09-12)](#important-transactions-demo-run--2026-09-12)
-  - [Repository & docs](#repository--docs)
+  - [Repository & code map](#repository--code-map)
 - [Introduction](#introduction)
   - [The problem: inference is centralized and expensive](#the-problem-inference-is-centralized-and-expensive)
   - [The vision: a shared brain made of idle machines](#the-vision-a-shared-brain-made-of-idle-machines)
@@ -198,8 +208,6 @@ mother 20 + contributor `host-7186124901ec` 4 + contributor `host-d3bcc8dc8762` 
   - [Prerequisites](#prerequisites)
   - [Join the network as a contributor](#join-the-network-as-a-contributor)
   - [Consume inference](#consume-inference)
-  - [Run your own operator stack](#run-your-own-operator-stack)
-  - [End-to-end verification checklist](#end-to-end-verification-checklist)
 - [Roadmap](#roadmap)
 - [Frequently Asked Questions](#frequently-asked-questions)
 - [Conclusion](#conclusion)
@@ -265,7 +273,7 @@ There are three ways to participate in Blitzwing, and two of them can make you m
 | You are… | What you do | What you get |
 |----------|-------------|--------------|
 | **A contributor** | Run `blitzwing` and host some model layers on your machine. | **HBAR, per request**, proportional to the number of layers you host. The more layers and the more traffic, the more you earn. |
-| **An operator** | Run the mother/orchestrator, gateway, and (optionally) the escrow + ENS services for a model. | The treasury position: you take payment from consumers and fan it out to contributors; you can configure fees and run the economy for your model. |
+| **An operator** | Run the mother/orchestrator, gateway, escrow, and ENS services for a model. | The operator position: you take payment from consumers and it's released to contributors through the escrow; you can configure fees and run the economy for your model. |
 | **A consumer** | Call the OpenAI-compatible endpoint and pay per request. | Cheap, auditable inference, plus a cryptographic receipt proving exactly who computed your answer. |
 
 A contributor's earnings are delightfully mechanical: if a request costs `N` layers × the per-layer
@@ -278,8 +286,9 @@ Blitzwing's design is best understood through the two people it's built for. The
 straight from the project's own user-story doc, and each one produces **on-chain proof that anyone can
 check** — no trust in Blitzwing required.
 
-**Story 1 — "I want to earn HBAR with my spare PC."** Dana has a gaming PC that sits idle most of the
-day. She installs the CLI, tells it how many layers her machine can handle, and gives it her Hedera
+**Story 1 — "I want to earn HBAR with my spare PC."** Dana has a **CPU-only PC with no GPU** that sits
+idle most of the day. Even without a graphics card, she can host a handful of the model's layers. She
+installs the CLI, tells it how many layers her machine can handle, and gives it her Hedera
 account ID. The operator mints her a company-owned ENS name — `host-abc123.blitzwing.eth` — and
 publishes her layer range and payout account as on-chain records. Her machine starts serving. When a
 request routes through her, she's paid HBAR within seconds, and she can open HashScan or the HCS audit
@@ -665,7 +674,6 @@ For contributors who want to read the code, here's how the repository is organiz
 | `web-ui/` | The Swarm Console (TanStack Start + HashPack). |
 | `examples/` | Consumer clients: free Python, paid Node, and the standalone ENS receipt verifier. |
 | `scripts/` | Operator and contributor ops scripts (bootstrap, join, recover, provision). |
-| `docs/` | Architecture and setup documentation. |
 
 The beauty of the contributor experience is that **none of this matters to you as a joiner** — the CLI
 ships everything it needs inside the npm package. You never clone the repository to contribute; you
@@ -678,6 +686,20 @@ only read it if you want to understand or improve the network.
 Hedera is Blitzwing's money and memory: it's where inference is paid for, where contributors are paid
 out, and where an independent, tamper-evident record of every payout lives. Everything in this section
 runs on **Hedera Testnet** today.
+
+> **📂 Hedera in the code** — every claim in this section is backed by source you can open:
+>
+> | What | File |
+> |------|------|
+> | Layer-weighted HBAR payouts + HCS audit log | [`orchestrator/app/hedera_payouts.py`](orchestrator/app/hedera_payouts.py) |
+> | Smart-contract escrow release (EVM) | [`orchestrator/app/hedera_escrow.py`](orchestrator/app/hedera_escrow.py) |
+> | `BlitzwingEscrow.sol` contract + Hardhat deploy | [`contracts/contracts/BlitzwingEscrow.sol`](contracts/contracts/BlitzwingEscrow.sol) · [`contracts/scripts/deploy.js`](contracts/scripts/deploy.js) |
+> | x402 payment gateway (verify → settle → proxy → payout) | [`packages/x402-gateway/index.ts`](packages/x402-gateway/index.ts) |
+> | x402 facilitator + Hedera signer (verify/settle, Mirror Node) | [`packages/x402-facilitator/index.ts`](packages/x402-facilitator/index.ts) · [`packages/x402-facilitator/hedera-signer.ts`](packages/x402-facilitator/hedera-signer.ts) |
+> | JVM bridge for `hedera-sdk-py` | [`orchestrator/app/hedera_jvm.py`](orchestrator/app/hedera_jvm.py) |
+> | Hedera config / env settings | [`orchestrator/app/config.py`](orchestrator/app/config.py) |
+> | Paid Node consumer (402 → pay → retry) | [`examples/x402_chat_client/index.ts`](examples/x402_chat_client/index.ts) |
+> | Browser HashPack paid chat | [`web-ui/src/`](web-ui/src) |
 
 ### Why Hedera
 
@@ -716,7 +738,7 @@ sequenceDiagram
     G->>F: verify payment
     F-->>G: verified
     G->>F: settle payment
-    F->>H: submit transfer into escrow / treasury
+    F->>H: submit transfer into escrow
     H-->>F: tx id
     F-->>G: settled
     G->>O: proxy request (X-Blitzwing-Paid, X-Blitzwing-X402-Tx-Id)
@@ -748,7 +770,7 @@ Two small TypeScript services implement the x402 edge:
   `payTo` target, returns `402` to unpaid requests, and — once a retry carries a valid payment — drives
   verify → settle → proxy-to-orchestrator → payout. It carefully exposes the custom x402 response
   headers via CORS so browser clients (which otherwise can't read them) work. The `payTo` target
-  resolves to the escrow contract if one is configured, otherwise the mother/treasury account.
+  resolves to the escrow contract, which holds the payment until inference completes.
 - **The Facilitator (`packages/x402-facilitator`, port `8791`)** is the verify/settle service and the
   fee-payer for settlement. It exposes `/verify`, `/settle`, `/supported`, and `/health`. It is
   deliberately strict: it refuses to boot unless the network resolves to Hedera testnet (mainnet is
@@ -765,29 +787,19 @@ pool.
 
 ```mermaid
 graph TB
-    P["Request paid: 3.2 HBAR<br/>(32 layers × 0.1)"] --> S{"Settlement mode?"}
-    S -->|escrow configured| E["Escrow.release(requestId,<br/>recipients[], amounts[])"]
-    S -->|default| T["Treasury TransferTransaction<br/>(one atomic multi-credit)"]
+    P["Request paid: 3.2 HBAR<br/>(32 layers × 0.1)"] --> E["Escrow.release(requestId,<br/>recipients[], amounts[])"]
     E --> A["Node A (12 layers) → 1.2 HBAR"]
     E --> B["Node B (8 layers) → 0.8 HBAR"]
     E --> M["Mother (12 layers) → 1.2 HBAR"]
-    T --> A
-    T --> B
-    T --> M
     A & B & M --> HCS["HCS audit message written"]
 ```
 
-There are two settlement modes, chosen by configuration:
-
-- **Direct treasury (default).** The mother account sends a single `TransferTransaction` that debits the
-  treasury and credits each contributing host in one atomic operation (skipping no-op self-credits).
-- **Escrow (optional).** If an escrow contract is configured, payment settles into the escrow and the
-  orchestrator calls the contract's `release()` to pay each recipient. This is the more
-  trust-minimized rail.
-
-In both modes, the orchestrator then writes an HCS audit message and returns a payout receipt. The
-payout endpoint is guarded: when x402 is enabled, it requires proof that the request was actually paid
-before it will release money, so a payout can't be triggered for a freeloading request.
+Settlement runs through the **Blitzwing Escrow contract** on Hedera's EVM. The x402 payment settles
+into the escrow, and once inference completes the orchestrator calls the contract's `release()` to pay
+each recipient their `layers_hosted × cost_per_layer` in a single, trust-minimized on-chain call. The
+orchestrator then writes an HCS audit message and returns a payout receipt. The payout endpoint is
+guarded: when x402 is enabled, it requires proof that the request was actually paid before it will
+release money, so a payout can't be triggered for a freeloading request.
 
 Contributors register their **Hedera account ID** (`0.0.N`) when they join — that, and nothing more, is
 all they need to be paid. No private key ever leaves their machine to Blitzwing; the account ID is a
@@ -795,9 +807,9 @@ public destination.
 
 ### The Blitzwing Escrow contract
 
-For operators who want a trust-minimized payout rail, Blitzwing ships a small, audited-in-spirit
-Solidity contract, **`BlitzwingEscrow.sol`**, deployed on Hedera's EVM. Its design is deliberately
-pool-based, because x402 payments arrive without a request ID attached:
+Settlement runs through a small, audited-in-spirit Solidity contract, **`BlitzwingEscrow.sol`**,
+deployed on Hedera's EVM — the trust-minimized payout rail every request flows through. Its design is
+deliberately pool-based, because x402 payments arrive without a request ID attached:
 
 | Member | Kind | What it does |
 |--------|------|--------------|
@@ -881,12 +893,12 @@ commit real keys** — use a local `.env` and rotate anything that leaks.
 | `X402_ENABLED` | Turn the paid flow on (`1`) or off (`0`, free inference). |
 | `COST_PER_LAYER_TINYBARS` | Per-layer price; default `10000000` (0.1 HBAR). |
 | `TOTAL_LAYERS` | Layer count for the model; default `32`. Request price = layers × per-layer. |
-| `MOTHER_ACCOUNT_ID` / `MOTHER_PRIVATE_KEY` | Treasury / redistribution signer. |
+| `MOTHER_ACCOUNT_ID` / `MOTHER_PRIVATE_KEY` | Escrow operator / fee-payer signer. |
 | `FACILITATOR_URL` | Where the gateway reaches the facilitator (default `http://127.0.0.1:8791`). |
 | `FACILITATOR_ACCOUNT_ID` / `FACILITATOR_PRIVATE_KEY` | Settlement fee-payer (needs HBAR). |
 | `HEDERA_NETWORK` | `hedera-testnet` (mainnet is rejected by the facilitator). |
 | `HCS_TOPIC_ID` | Audit topic; created automatically on first payout if empty. |
-| `ESCROW_CONTRACT_ID` / `ESCROW_EVM_ADDRESS` | Enable the escrow payout rail when set. |
+| `ESCROW_CONTRACT_ID` / `ESCROW_EVM_ADDRESS` | The escrow contract used for settlement and payouts. |
 | `X402_PAY_TO` | Override the x402 `payTo` target (e.g. the escrow account). |
 | `INFERENCE_TIMEOUT_SECONDS` | Upper bound on a single inference. |
 
@@ -914,6 +926,17 @@ to deepen it, and the roadmap leans into it:
 If Hedera is where Blitzwing's money moves, **ENS is where its identity lives.** Every node in the
 network gets a human-readable, on-chain name that publishes exactly what it does and where it's paid —
 so the supply chain behind any answer is independently resolvable by anyone.
+
+> **📂 ENS in the code** — the on-chain identity backbone, end to end:
+>
+> | What | File |
+> |------|------|
+> | ENS HTTP API (provision / update / deactivate / resolve) | [`packages/ens-service/src/server.ts`](packages/ens-service/src/server.ts) |
+> | On-chain ENSv2 work (resolver + user registry + subname mint + records) | [`packages/ens-service/src/client.ts`](packages/ens-service/src/client.ts) |
+> | Record schema + validation (`com.blitzwing.*`) | [`packages/ens-service/src/records.ts`](packages/ens-service/src/records.ts) |
+> | Parent name bootstrap | [`packages/ens-service/src/bootstrap-parent.ts`](packages/ens-service/src/bootstrap-parent.ts) · [`packages/ens-service/src/config.ts`](packages/ens-service/src/config.ts) |
+> | Orchestrator ENS client (verify / reconcile / replay + payout gate) | [`orchestrator/app/ens_client.py`](orchestrator/app/ens_client.py) |
+> | Standalone consumer verifier (resolve on Sepolia, check receipt) | [`examples/ens_verify_client/index.ts`](examples/ens_verify_client/index.ts) |
 
 ### Why ENS, and the two-chain split
 
@@ -1163,8 +1186,8 @@ blitzwing
 
 **Running on a public cloud VM** (best for always-on contributors): provision a Linux VM, open inbound
 TCP `31337` (swarm P2P) and `8001` (shard manager), install Node 18+ and Python 3.11, then
-`npm i -g blitzwing && blitzwing` and choose the public-IP option. See
-[`docs/contributor-setup.md`](docs/contributor-setup.md) and [`docs/gcp-setup.md`](docs/gcp-setup.md).
+`npm i -g blitzwing && blitzwing` and choose the public-IP option. The provisioning and join scripts
+live in [`scripts/`](scripts), and the CLI wizard itself in [`packages/cli/src/`](packages/cli/src).
 
 For the full CLI reference — every command, flag, and environment variable — see
 [`packages/cli/README.md`](packages/cli/README.md).
@@ -1204,48 +1227,6 @@ npm install --legacy-peer-deps
 npm run dev
 ```
 
-### Run your own operator stack
-
-Operators run the services that make a paid, identity-backed swarm. At a high level:
-
-```mermaid
-graph LR
-    D["1. Discovery Service<br/>:9000"] --> M["2. Mother bootstrap<br/>(all layers, :8000 + :8001)"]
-    M --> F["3. Facilitator<br/>:8791"]
-    F --> G["4. x402 Gateway<br/>:8000"]
-    G --> O["5. (optional) ENS Service :8792<br/>+ Escrow contract"]
-```
-
-1. **Deploy the Discovery Service** once on a small always-on box, set a strong `DISCOVERY_ADMIN_TOKEN`,
-   and note its URL.
-2. **Bootstrap a mother** for your model: it loads all layers, starts the shard manager and orchestrator,
-   and registers itself with discovery. A single script handles this (`scripts/bootstrap_mother.sh`).
-3. **Start the facilitator** (`packages/x402-facilitator`) with a funded fee-payer account.
-4. **Start the gateway** (`packages/x402-gateway`) in front of the orchestrator with `X402_ENABLED=1`
-   and your pricing.
-5. **Optionally** run the ENS service and deploy the escrow contract to enable on-chain identity and the
-   escrow payout rail.
-
-Configuration is driven entirely by environment variables (documented in the
-[Hedera](#hedera-configuration-reference) and [ENS](#ens-configuration-reference) reference tables, and
-in [`docs/x402-hedera.md`](docs/x402-hedera.md), [`docs/ens-setup.md`](docs/ens-setup.md), and
-[`docs/gcp-setup.md`](docs/gcp-setup.md)). **Keep every private key in a local, uncommitted `.env` and
-rotate anything that has ever been exposed.**
-
-### End-to-end verification checklist
-
-Once a paid swarm is running, you (or a skeptic) can verify the entire loop against public
-infrastructure:
-
-- [ ] `GET :8791/health` and `/supported` on the facilitator respond.
-- [ ] `GET :8000/health` on the gateway shows `x402_enabled`, the `payTo` target, and the price.
-- [ ] An **unpaid** chat request returns **402** with a `PAYMENT-REQUIRED` header.
-- [ ] A **paid** chat request returns **200** with a `blitzwing_payment` receipt.
-- [ ] A **failed** inference after settlement is reconcilable from the logged transaction.
-- [ ] The payout transaction appears on **HashScan** for the exact amount per host.
-- [ ] The **HCS topic** shows a consensus-timestamped entry matching the receipt.
-- [ ] Each host's **ENS name** resolves on Sepolia to the Hedera account in the receipt.
-
 ---
 
 ## Roadmap
@@ -1266,8 +1247,8 @@ gantt
     HCS audit trail + Mirror Node verify         :done,   a4, 2026-08-10, 25d
     ENS identity backbone + payout gate          :done,   a5, 2026-08-20, 30d
     Swarm Console + HashPack paid chat           :done,   a6, 2026-09-01, 20d
+    Escrow contract settlement + payouts         :done,   a7, 2026-09-05, 15d
     section Next
-    Escrow-default settlement                    :active, b1, 2026-09-15, 30d
     HTS SHARD compute-credit token               :        b2, 2026-10-01, 45d
     Scheduled / streamed uptime payouts          :        b3, 2026-10-15, 40d
     Batch atomic multi-host payouts              :        b4, 2026-11-01, 30d
@@ -1279,14 +1260,13 @@ gantt
 ```
 
 **Now (shipped).** The distributed swarm with live layer carving and "shrink and hand off" rebalancing;
-the OpenAI-compatible API with streaming; x402 pay-per-inference with layer-weighted HBAR payouts;
-the HCS audit trail and Mirror Node verification; the ENS identity backbone with a payout verification
-gate; and the Swarm Console with real HashPack paid chat.
+the OpenAI-compatible API with streaming; x402 pay-per-inference with layer-weighted HBAR payouts
+settled through the on-chain **escrow contract**; the HCS audit trail and Mirror Node verification; the
+ENS identity backbone with a payout verification gate; and the Swarm Console with real HashPack paid chat.
 
-**Next.** Make escrow the default settlement rail for trust-minimized payouts; introduce an **HTS
-`SHARD` token** as a closed-loop compute credit with compliance controls; add **scheduled/streamed
-uptime payouts** to reward reliable hosts beyond per-request rewards; and make every request's payout a
-**single atomic batch**.
+**Next.** Introduce an **HTS `SHARD` token** as a closed-loop compute credit with compliance controls;
+add **scheduled/streamed uptime payouts** to reward reliable hosts beyond per-request rewards; and make
+every request's payout a **single atomic batch**.
 
 **Later.** Roll out the advanced ENSv2 primitives (wildcard burst hosts, failover aliasing,
 role-based access control, tokenized transferable slots); open a **multi-model marketplace** with GPU
@@ -1364,7 +1344,7 @@ and auditable by anyone** — is the thing worth building, and the thing worth j
 
 - **Earn from idle compute:** `npm i -g blitzwing && blitzwing`
 - **Build on cheap, auditable inference:** point your OpenAI client at a Blitzwing gateway.
-- **Run your own swarm:** start with [`docs/gcp-setup.md`](docs/gcp-setup.md).
+- **Run your own swarm:** start with the [orchestrator](orchestrator/app) and the [`scripts/`](scripts) bootstrap tooling.
 - **Follow the project:** https://github.com/Marshal-AM/blitzwing
 
 ---
